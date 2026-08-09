@@ -1,6 +1,6 @@
 -- ============================================
--- PROJETO KILL V4 - MULTI-SELECTION & GUI INTERFACE
--- ADAPTADO COM NAVEGAÇÃO DE JOGADORES E MÉTODOS DE ATAQUE
+-- PROJETO KILL V4 - MULTI-SELECTION & GUI INTERFACE (MINIMALISTA)
+-- ADAPTADO PARA PROJECT BACKPACK / SCRIPT ADAPTER
 -- ============================================
 
 local Players = game:GetService("Players")
@@ -23,7 +23,6 @@ local objetosSelecionados = {}
 local conexaoAtaque = nil
 local jogadorAlvoSelecionado = nil
 local loopKillAtivo = false
-local conexaoLoopKill = nil
 
 -- --- TRANCAR AUTORIDADE DE REDE (SIMULATION RADIUS MÁXIMO) ---
 local sethp = sethiddenproperty or set_hidden_property
@@ -39,12 +38,11 @@ if sethp then
 end
 
 -- ============================================
--- CRIAÇÃO DA INTERFACE GRÁFICA (SCREEN GUI)
+-- CRIAÇÃO DA INTERFACE GRÁFICA (MINIMALISTA & COMPACTA)
 -- ============================================
 
 local guiParent = pcall(function() return CoreGui.Name end) and CoreGui or lp:WaitForChild("PlayerGui")
 
--- Destruir GUI antiga se já existir
 if guiParent:FindFirstChild("SelectMatterV4Gui") then
     guiParent.SelectMatterV4Gui:Destroy()
 end
@@ -54,162 +52,158 @@ screenGui.Name = "SelectMatterV4Gui"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = guiParent
 
--- Painel Principal
+-- Painel Principal Minimalista (Tamanho reduzido igual ao de referência)
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 520, 0, 320)
-mainFrame.Position = UDim2.new(0.5, -260, 0.5, -160)
+mainFrame.Size = UDim2.new(0, 360, 0, 240)
+mainFrame.Position = UDim2.new(0.5, -180, 0.5, -120)
 mainFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 mainFrame.BorderSizePixel = 0
-mainFrame.Visible = false
+mainFrame.Visible = false -- Desativado por padrão ao executar
 mainFrame.Active = true
 mainFrame.Draggable = true
 mainFrame.Parent = screenGui
 
 local mainCorner = Instance.new("UICorner")
-mainCorner.CornerRadius = UDim.new(0, 6)
+mainCorner.CornerRadius = UDim.new(0, 4)
 mainCorner.Parent = mainFrame
 
 local mainStroke = Instance.new("UIStroke")
 mainStroke.Color = Color3.fromRGB(255, 255, 255)
-mainStroke.Thickness = 2.5
+mainStroke.Thickness = 2
 mainStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 mainStroke.Parent = mainFrame
 
--- LADO ESQUERDO: LISTA DE JOGADORES E PESQUISA
+-- LADO ESQUERDO: BUSCA E LISTA DE JOGADORES
 local leftFrame = Instance.new("Frame")
 leftFrame.Name = "LeftFrame"
-leftFrame.Size = UDim2.new(0.5, -5, 1, -20)
-leftFrame.Position = UDim2.new(0, 10, 0, 10)
+leftFrame.Size = UDim2.new(0.48, 0, 1, -16)
+leftFrame.Position = UDim2.new(0, 8, 0, 8)
 leftFrame.BackgroundTransparency = 1
 leftFrame.Parent = mainFrame
 
 -- Barra de Pesquisa
 local searchBox = Instance.new("TextBox")
 searchBox.Name = "SearchBox"
-searchBox.Size = UDim2.new(1, 0, 0, 28)
+searchBox.Size = UDim2.new(1, 0, 0, 22)
 searchBox.Position = UDim2.new(0, 0, 0, 0)
-searchBox.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+searchBox.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 searchBox.BorderColor3 = Color3.fromRGB(255, 255, 255)
 searchBox.BorderSizePixel = 1
-searchBox.PlaceholderText = "🔍 Pesquisar Jogador..."
-searchBox.PlaceholderColor3 = Color3.fromRGB(150, 150, 150)
+searchBox.PlaceholderText = "🔍"
+searchBox.PlaceholderColor3 = Color3.fromRGB(180, 180, 180)
 searchBox.Text = ""
 searchBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 searchBox.Font = Enum.Font.SourceSansBold
-searchBox.TextSize = 14
+searchBox.TextSize = 13
 searchBox.TextXAlignment = Enum.TextXAlignment.Left
 searchBox.Parent = leftFrame
 
 local searchPadding = Instance.new("UIPadding")
-searchPadding.PaddingLeft = UDim.new(0, 8)
+searchPadding.PaddingLeft = UDim.new(0, 5)
 searchPadding.Parent = searchBox
 
--- Botões de Ação de Kill
+-- Botões Brancos de Ação (Estilo da Foto Original)
 local actionContainer = Instance.new("Frame")
 actionContainer.Name = "ActionContainer"
-actionContainer.Size = UDim2.new(1, 0, 0, 32)
-actionContainer.Position = UDim2.new(0, 0, 0, 34)
+actionContainer.Size = UDim2.new(1, 0, 0, 30)
+actionContainer.Position = UDim2.new(0, 0, 0, 27)
 actionContainer.BackgroundTransparency = 1
 actionContainer.Parent = leftFrame
 
 local btnLoopKill = Instance.new("TextButton")
 btnLoopKill.Name = "BtnLoopKill"
-btnLoopKill.Size = UDim2.new(0.48, 0, 1, 0)
+btnLoopKill.Size = UDim2.new(0.46, 0, 1, 0)
 btnLoopKill.Position = UDim2.new(0, 0, 0, 0)
-btnLoopKill.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-btnLoopKill.BorderColor3 = Color3.fromRGB(255, 255, 255)
+btnLoopKill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+btnLoopKill.BorderSizePixel = 0
 btnLoopKill.Text = "LOOP\nKILL ON"
-btnLoopKill.TextColor3 = Color3.fromRGB(255, 255, 255)
+btnLoopKill.TextColor3 = Color3.fromRGB(0, 0, 0)
 btnLoopKill.Font = Enum.Font.SourceSansBold
-btnLoopKill.TextSize = 11
+btnLoopKill.TextSize = 10
 btnLoopKill.Parent = actionContainer
 
 local btnKillAllOff = Instance.new("TextButton")
 btnKillAllOff.Name = "BtnKillAllOff"
-btnKillAllOff.Size = UDim2.new(0.48, 0, 1, 0)
-btnKillAllOff.Position = UDim2.new(0.52, 0, 0, 0)
-btnKillAllOff.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-btnKillAllOff.BorderColor3 = Color3.fromRGB(255, 255, 255)
+btnKillAllOff.Size = UDim2.new(0.50, 0, 1, 0)
+btnKillAllOff.Position = UDim2.new(0.50, 0, 0, 0)
+btnKillAllOff.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+btnKillAllOff.BorderSizePixel = 0
 btnKillAllOff.Text = "KILL ALL\nLOOP OFF"
-btnKillAllOff.TextColor3 = Color3.fromRGB(255, 255, 255)
+btnKillAllOff.TextColor3 = Color3.fromRGB(0, 0, 0)
 btnKillAllOff.Font = Enum.Font.SourceSansBold
-btnKillAllOff.TextSize = 11
+btnKillAllOff.TextSize = 10
 btnKillAllOff.Parent = actionContainer
 
--- Lista de Jogadores (ScrollingFrame Preto)
+-- Lista Rolável de Nomes (Limpa, sem Caixas/Bordas Individuais)
 local playerScroll = Instance.new("ScrollingFrame")
 playerScroll.Name = "PlayerScroll"
-playerScroll.Size = UDim2.new(1, 0, 1, -72)
-playerScroll.Position = UDim2.new(0, 0, 0, 72)
-playerScroll.BackgroundColor3 = Color3.fromRGB(5, 5, 5)
-playerScroll.BorderColor3 = Color3.fromRGB(255, 255, 255)
-playerScroll.BorderSizePixel = 1
-playerScroll.ScrollBarThickness = 6
+playerScroll.Size = UDim2.new(1, 0, 1, -62)
+playerScroll.Position = UDim2.new(0, 0, 0, 62)
+playerScroll.BackgroundTransparency = 1
+playerScroll.BorderSizePixel = 0
+playerScroll.ScrollBarThickness = 3
 playerScroll.ScrollBarImageColor3 = Color3.fromRGB(255, 255, 255)
 playerScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 playerScroll.Parent = leftFrame
 
 local scrollLayout = Instance.new("UIListLayout")
 scrollLayout.SortOrder = Enum.SortOrder.Name
-scrollLayout.Padding = UDim.new(0, 3)
+scrollLayout.Padding = UDim.new(0, 2)
 scrollLayout.Parent = playerScroll
 
--- DIVISOR CENTRAL
+-- DIVISOR CENTRAL (LINHA BRANCA FINA)
 local divider = Instance.new("Frame")
 divider.Name = "Divider"
-divider.Size = UDim2.new(0, 2, 1, -20)
-divider.Position = UDim2.new(0.5, -1, 0, 10)
+divider.Size = UDim2.new(0, 1, 1, -16)
+divider.Position = UDim2.new(0.5, 0, 0, 8)
 divider.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 divider.BorderSizePixel = 0
 divider.Parent = mainFrame
 
--- LADO DIREITO: MÉTODOS DE KILL / VEÍCULOS
+-- LADO DIREITO: MÉTODOS DE KILL
 local rightFrame = Instance.new("Frame")
 rightFrame.Name = "RightFrame"
-rightFrame.Size = UDim2.new(0.5, -15, 1, -20)
-rightFrame.Position = UDim2.new(0.5, 5, 0, 10)
+rightFrame.Size = UDim2.new(0.48, 0, 1, -16)
+rightFrame.Position = UDim2.new(0.52, 0, 0, 8)
 rightFrame.BackgroundTransparency = 1
 rightFrame.Parent = mainFrame
 
 local titleRight = Instance.new("TextLabel")
 titleRight.Name = "TitleRight"
-titleRight.Size = UDim2.new(1, 0, 0, 35)
+titleRight.Size = UDim2.new(1, 0, 0, 32)
 titleRight.BackgroundTransparency = 1
 titleRight.Text = "Métodos de Kill do\nSELECT MATTER V4"
 titleRight.TextColor3 = Color3.fromRGB(255, 255, 255)
 titleRight.Font = Enum.Font.SourceSansBold
-titleRight.TextSize = 15
+titleRight.TextSize = 13
+titleRight.TextXAlignment = Enum.TextXAlignment.Center
 titleRight.Parent = rightFrame
 
 local methodScroll = Instance.new("ScrollingFrame")
 methodScroll.Name = "MethodScroll"
-methodScroll.Size = UDim2.new(1, 0, 1, -40)
-methodScroll.Position = UDim2.new(0, 0, 0, 40)
+methodScroll.Size = UDim2.new(1, 0, 1, -36)
+methodScroll.Position = UDim2.new(0, 0, 0, 36)
 methodScroll.BackgroundTransparency = 1
 methodScroll.BorderSizePixel = 0
-methodScroll.ScrollBarThickness = 4
+methodScroll.ScrollBarThickness = 3
+methodScroll.ScrollBarImageColor3 = Color3.fromRGB(255, 255, 255)
 methodScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 methodScroll.Parent = rightFrame
 
 local methodLayout = Instance.new("UIListLayout")
 methodLayout.SortOrder = Enum.SortOrder.LayoutOrder
-methodLayout.Padding = UDim.new(0, 6)
+methodLayout.Padding = UDim.new(0, 4)
 methodLayout.Parent = methodScroll
 
--- Lista de Métodos / Veículos
 local metodos = {
-    "VEÍCULOS DO MAPA (AUTO)",
     "VEÍCULO AZUL 1",
     "Helicóptero 1 New",
     "Car LEGO 1",
     "JATT 1 NEW"
 }
 
--- ============================================
--- BOTÃO DE ATIVAÇÃO NA TELA (TOOL UI BUTTON)
--- ============================================
-
+-- BOTÃO DA TOOL NA TELA
 local actionButton = Instance.new("TextButton")
 actionButton.Name = "SelectMatterV4Button"
 actionButton.Size = UDim2.new(0, 65, 0, 65)
@@ -241,7 +235,7 @@ uiCorner.CornerRadius = UDim.new(0, 2)
 uiCorner.Parent = actionButton
 
 -- ============================================
--- LÓGICA DE FUNCIONAMENTO DA INTERFACE & ATAQUE
+-- LÓGICA DE FUNCIONAMENTO
 -- ============================================
 
 local function atualizarTexto()
@@ -257,22 +251,18 @@ local function resetarEstado()
         conexaoAtaque:Disconnect()
         conexaoAtaque = nil
     end
-    if conexaoLoopKill then
-        conexaoLoopKill:Disconnect()
-        conexaoLoopKill = nil
-    end
     objetosSelecionados = {}
     modoAtivo = false
     loopKillAtivo = false
     jogadorAlvoSelecionado = nil
     actionButton.BackgroundTransparency = 0
     actionButton.TextTransparency = 0
-    btnLoopKill.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+    btnLoopKill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    btnLoopKill.TextColor3 = Color3.fromRGB(0, 0, 0)
     mainFrame.Visible = false
     atualizarTexto()
 end
 
--- Motores Fling
 local function aplicarMotoresFling(corpo)
     for _, child in pairs(corpo:GetChildren()) do
         if child:IsA("BodyVelocity") or child:IsA("BodyAngularVelocity") or child.Name == "BobsledSpinMotor" then
@@ -301,7 +291,6 @@ local function aplicarMotoresFling(corpo)
     angularVelocity.Parent = corpo
 end
 
--- Bypass Network Ownership
 local function executarBypassNetworkOwnership(assentoAlvo)
     local meuHRP = character and character:FindFirstChild("HumanoidRootPart")
     local meuHum = character and character:FindFirstChildOfClass("Humanoid")
@@ -321,7 +310,6 @@ local function executarBypassNetworkOwnership(assentoAlvo)
     meuHRP.CFrame = posicaoOriginal
 end
 
--- Iniciar Ataque
 local function iniciarAtaqueMassa(alvoPlayer)
     if not alvoPlayer then return end
     local alvoChar = alvoPlayer.Character
@@ -404,7 +392,7 @@ local function iniciarAtaqueMassa(alvoPlayer)
 end
 
 -- ============================================
--- PREENCHIMENTO DINÂMICO DA LISTA DE JOGADORES
+-- PREENCHIMENTO LIMPO DA LISTA (SEM CAIXAS)
 -- ============================================
 
 local function atualizarListaJogadores()
@@ -425,20 +413,15 @@ local function atualizarListaJogadores()
             if filtro == "" or nome:lower():find(filtro) or displayName:lower():find(filtro) then
                 local pBtn = Instance.new("TextButton")
                 pBtn.Name = nome
-                pBtn.Size = UDim2.new(1, -6, 0, 26)
-                pBtn.BackgroundColor3 = (jogadorAlvoSelecionado == plr) and Color3.fromRGB(60, 60, 60) or Color3.fromRGB(12, 12, 12)
-                pBtn.BorderColor3 = Color3.fromRGB(200, 200, 200)
-                pBtn.BorderSizePixel = 1
-                pBtn.Text = displayName .. " (@" .. nome .. ")"
-                pBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-                pBtn.Font = Enum.Font.SourceSans
-                pBtn.TextSize = 13
+                pBtn.Size = UDim2.new(1, 0, 0, 20)
+                pBtn.BackgroundTransparency = 1
+                pBtn.BorderSizePixel = 0
+                pBtn.Text = displayName
+                pBtn.TextColor3 = (jogadorAlvoSelecionado == plr) and Color3.fromRGB(255, 220, 0) or Color3.fromRGB(255, 255, 255)
+                pBtn.Font = Enum.Font.SourceSansBold
+                pBtn.TextSize = 14
                 pBtn.TextXAlignment = Enum.TextXAlignment.Left
                 pBtn.Parent = playerScroll
-
-                local btnPadding = Instance.new("UIPadding")
-                btnPadding.PaddingLeft = UDim.new(0, 6)
-                btnPadding.Parent = pBtn
 
                 pBtn.MouseButton1Click:Connect(function()
                     jogadorAlvoSelecionado = plr
@@ -449,7 +432,7 @@ local function atualizarListaJogadores()
                     end
                 end)
 
-                alturaTotal = alturaTotal + 29
+                alturaTotal = alturaTotal + 22
             end
         end
     end
@@ -457,13 +440,12 @@ local function atualizarListaJogadores()
     playerScroll.CanvasSize = UDim2.new(0, 0, 0, alturaTotal)
 end
 
--- Conectar filtro de busca e atualização de jogadores
 searchBox:GetPropertyChangedSignal("Text"):Connect(atualizarListaJogadores)
 Players.PlayerAdded:Connect(atualizarListaJogadores)
 Players.PlayerRemoving:Connect(atualizarListaJogadores)
 
 -- ============================================
--- MÉTODOS DE ATAQUE E INVOCADOR EXTERNO ADAPTER
+-- PREENCHIMENTO LIMPO DE MÉTODOS (DIREITA)
 -- ============================================
 
 local function criarBotoesMetodos()
@@ -471,18 +453,17 @@ local function criarBotoesMetodos()
     for _, nomeMetodo in ipairs(metodos) do
         local mBtn = Instance.new("TextButton")
         mBtn.Name = nomeMetodo
-        mBtn.Size = UDim2.new(1, -6, 0, 28)
-        mBtn.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-        mBtn.BorderColor3 = Color3.fromRGB(255, 255, 255)
-        mBtn.BorderSizePixel = 1
+        mBtn.Size = UDim2.new(1, 0, 0, 22)
+        mBtn.BackgroundTransparency = 1
+        mBtn.BorderSizePixel = 0
         mBtn.Text = nomeMetodo
         mBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
         mBtn.Font = Enum.Font.SourceSansBold
-        mBtn.TextSize = 13
+        mBtn.TextSize = 14
+        mBtn.TextXAlignment = Enum.TextXAlignment.Left
         mBtn.Parent = methodScroll
 
         mBtn.MouseButton1Click:Connect(function()
-            -- Invocação via Adaptador Externo
             if _G.ScriptAdapter and _G.ScriptAdapter.InvokeVehicle then
                 _G.ScriptAdapter:InvokeVehicle(nomeMetodo, jogadorAlvoSelecionado)
             end
@@ -492,21 +473,22 @@ local function criarBotoesMetodos()
             end
         end)
 
-        alturaTotal = alturaTotal + 34
+        alturaTotal = alturaTotal + 26
     end
     methodScroll.CanvasSize = UDim2.new(0, 0, 0, alturaTotal)
 end
 
--- Alternar Loop Kill
 btnLoopKill.MouseButton1Click:Connect(function()
     loopKillAtivo = not loopKillAtivo
     if loopKillAtivo then
-        btnLoopKill.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
+        btnLoopKill.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+        btnLoopKill.TextColor3 = Color3.fromRGB(255, 255, 255)
         if jogadorAlvoSelecionado then
             iniciarAtaqueMassa(jogadorAlvoSelecionado)
         end
     else
-        btnLoopKill.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+        btnLoopKill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        btnLoopKill.TextColor3 = Color3.fromRGB(0, 0, 0)
     end
 end)
 
@@ -515,10 +497,14 @@ btnKillAllOff.MouseButton1Click:Connect(function()
 end)
 
 -- ============================================
--- EVENTOS DE UI E SELEÇÃO DE MUNDO
+-- EVENTOS DE UI E CAPTURA NO MUNDO
 -- ============================================
 
 actionButton.MouseButton1Click:Connect(function()
+    if _G.ScriptAdapter and _G.ScriptAdapter.MainPanel and _G.ScriptAdapter.MainPanel.Visible then
+        return
+    end
+
     if modoAtivo then
         resetarEstado()
     else
@@ -547,7 +533,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             local hitPart = raycastResult.Instance
             local model = hitPart:FindFirstAncestorOfClass("Model")
 
-            -- CASO 1: Clicar em um jogador no mundo
             if model and model:FindFirstChild("Humanoid") then
                 local tPlayer = Players:GetPlayerFromCharacter(model)
 
@@ -559,8 +544,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
                         iniciarAtaqueMassa(tPlayer)
                     end
                 end
-
-            -- CASO 2: Clicar em objetos/veículos físicos
             else
                 local alvoFisico = nil
                 local modeloVeiculo = hitPart:FindFirstAncestorOfClass("Model") or hitPart
@@ -569,7 +552,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
                     if hitPart:IsA("BasePart") then
                         alvoFisico = hitPart
                     elseif modeloVeiculo:IsA("Model") and modeloVeiculo.PrimaryPart then
-      alvoFisico = modeloVeiculo.PrimaryPart
+                        alvoFisico = modeloVeiculo.PrimaryPart
                     else
                         alvoFisico = hitPart
                     end
@@ -582,7 +565,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 
                         local assentoEncontrado = nil
                         if modeloVeiculo then
-                            assentoEncontrado = modeloVeiculo:FindFirstChildOfClass("VehicleSeat") or modeloVeiculo:FindFirstChild("PilotSeat", true)
+                            assentoEncontrado =modeloVeiculo:FindFirstChildOfClass("VehicleSeat") or modeloVeiculo:FindFirstChild("PilotSeat", true)
                         end
 
                         if not assentoEncontrado and hitPart:FindFirstAncestor("Helicopters") then
@@ -602,11 +585,10 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
--- Inicializar lista de métodos de kill
 criarBotoesMetodos()
 
 -- ============================================
--- REGISTRO NO ADAPTADOR
+-- REGISTRO NO ADAPTADOR DO PROJECT BACKPACK
 -- ============================================
 
 _G.ScriptAdapter = _G.ScriptAdapter or {}
