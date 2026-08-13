@@ -1,12 +1,14 @@
 -- ============================================
--- PROJETO KILL V4 - MULTI-SELECTION & GUI INTERFACE (MINIMALISTA)
--- ADAPTADO PARA PROJECT BACKPACK / SCRIPT ADAPTER
+-- PROJETO KILL V4 - MULTI-SELECTION & GUI INTERFACE
+-- DESIGN REFERÊNCIA: KILL CAUSE THE SPWAN
+-- INTEGRADO COM PROJECT BACKPACK / SCRIPT ADAPTER
 -- ============================================
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
 
 local lp = Players.LocalPlayer
@@ -19,10 +21,12 @@ end)
 
 -- --- VARIÁVEIS DE ESTADO ---
 local modoAtivo = false
+local lancarAtivo = false
+local loopKillAtivo = false
 local objetosSelecionados = {}
 local conexaoAtaque = nil
 local jogadorAlvoSelecionado = nil
-local loopKillAtivo = false
+local metodoSelecionado = "Method I"
 
 -- --- TRANCAR AUTORIDADE DE REDE (SIMULATION RADIUS MÁXIMO) ---
 local sethp = sethiddenproperty or set_hidden_property
@@ -38,7 +42,7 @@ if sethp then
 end
 
 -- ============================================
--- CRIAÇÃO DA INTERFACE GRÁFICA (MINIMALISTA & COMPACTA)
+-- CONSTRUÇÃO DA INTERFACE GRÁFICA
 -- ============================================
 
 local guiParent = pcall(function() return CoreGui.Name end) and CoreGui or lp:WaitForChild("PlayerGui")
@@ -52,14 +56,14 @@ screenGui.Name = "SelectMatterV4Gui"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = guiParent
 
--- Painel Principal Minimalista (Tamanho reduzido igual ao de referência)
+-- Painel Principal Minimalista Preto com Borda Branca
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 360, 0, 240)
-mainFrame.Position = UDim2.new(0.5, -180, 0.5, -120)
+mainFrame.Size = UDim2.new(0, 410, 0, 250)
+mainFrame.Position = UDim2.new(0.5, -205, 0.5, -125)
 mainFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 mainFrame.BorderSizePixel = 0
-mainFrame.Visible = false -- Desativado por padrão ao executar
+mainFrame.Visible = false
 mainFrame.Active = true
 mainFrame.Draggable = true
 mainFrame.Parent = screenGui
@@ -70,7 +74,7 @@ mainCorner.Parent = mainFrame
 
 local mainStroke = Instance.new("UIStroke")
 mainStroke.Color = Color3.fromRGB(255, 255, 255)
-mainStroke.Thickness = 2
+mainStroke.Thickness = 2.5
 mainStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 mainStroke.Parent = mainFrame
 
@@ -82,38 +86,38 @@ leftFrame.Position = UDim2.new(0, 8, 0, 8)
 leftFrame.BackgroundTransparency = 1
 leftFrame.Parent = mainFrame
 
--- Barra de Pesquisa
+-- Barra de Pesquisa ("Find a player...")
 local searchBox = Instance.new("TextBox")
 searchBox.Name = "SearchBox"
-searchBox.Size = UDim2.new(1, 0, 0, 22)
+searchBox.Size = UDim2.new(1, 0, 0, 24)
 searchBox.Position = UDim2.new(0, 0, 0, 0)
 searchBox.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 searchBox.BorderColor3 = Color3.fromRGB(255, 255, 255)
 searchBox.BorderSizePixel = 1
-searchBox.PlaceholderText = "🔍"
-searchBox.PlaceholderColor3 = Color3.fromRGB(180, 180, 180)
+searchBox.PlaceholderText = "Find a player..."
+searchBox.PlaceholderColor3 = Color3.fromRGB(200, 200, 200)
 searchBox.Text = ""
 searchBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-searchBox.Font = Enum.Font.SourceSansBold
-searchBox.TextSize = 13
+searchBox.Font = Enum.Font.Arcade
+searchBox.TextSize = 14
 searchBox.TextXAlignment = Enum.TextXAlignment.Left
 searchBox.Parent = leftFrame
 
 local searchPadding = Instance.new("UIPadding")
-searchPadding.PaddingLeft = UDim.new(0, 5)
+searchPadding.PaddingLeft = UDim.new(0, 6)
 searchPadding.Parent = searchBox
 
--- Botões Brancos de Ação (Estilo da Foto Original)
+-- Botões de Ação Superiores
 local actionContainer = Instance.new("Frame")
 actionContainer.Name = "ActionContainer"
 actionContainer.Size = UDim2.new(1, 0, 0, 30)
-actionContainer.Position = UDim2.new(0, 0, 0, 27)
+actionContainer.Position = UDim2.new(0, 0, 0, 28)
 actionContainer.BackgroundTransparency = 1
 actionContainer.Parent = leftFrame
 
 local btnLoopKill = Instance.new("TextButton")
 btnLoopKill.Name = "BtnLoopKill"
-btnLoopKill.Size = UDim2.new(0.46, 0, 1, 0)
+btnLoopKill.Size = UDim2.new(0.48, -2, 1, 0)
 btnLoopKill.Position = UDim2.new(0, 0, 0, 0)
 btnLoopKill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 btnLoopKill.BorderSizePixel = 0
@@ -125,8 +129,8 @@ btnLoopKill.Parent = actionContainer
 
 local btnKillAllOff = Instance.new("TextButton")
 btnKillAllOff.Name = "BtnKillAllOff"
-btnKillAllOff.Size = UDim2.new(0.50, 0, 1, 0)
-btnKillAllOff.Position = UDim2.new(0.50, 0, 0, 0)
+btnKillAllOff.Size = UDim2.new(0.48, -2, 1, 0)
+btnKillAllOff.Position = UDim2.new(0.52, 0, 0, 0)
 btnKillAllOff.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 btnKillAllOff.BorderSizePixel = 0
 btnKillAllOff.Text = "KILL ALL\nLOOP OFF"
@@ -135,11 +139,11 @@ btnKillAllOff.Font = Enum.Font.SourceSansBold
 btnKillAllOff.TextSize = 10
 btnKillAllOff.Parent = actionContainer
 
--- Lista Rolável de Nomes (Limpa, sem Caixas/Bordas Individuais)
+-- Lista Rolável de Nomes
 local playerScroll = Instance.new("ScrollingFrame")
 playerScroll.Name = "PlayerScroll"
-playerScroll.Size = UDim2.new(1, 0, 1, -62)
-playerScroll.Position = UDim2.new(0, 0, 0, 62)
+playerScroll.Size = UDim2.new(1, 0, 1, -64)
+playerScroll.Position = UDim2.new(0, 0, 0, 64)
 playerScroll.BackgroundTransparency = 1
 playerScroll.BorderSizePixel = 0
 playerScroll.ScrollBarThickness = 3
@@ -149,19 +153,19 @@ playerScroll.Parent = leftFrame
 
 local scrollLayout = Instance.new("UIListLayout")
 scrollLayout.SortOrder = Enum.SortOrder.Name
-scrollLayout.Padding = UDim.new(0, 2)
+scrollLayout.Padding = UDim.new(0, 3)
 scrollLayout.Parent = playerScroll
 
--- DIVISOR CENTRAL (LINHA BRANCA FINA)
+-- DIVISOR CENTRAL
 local divider = Instance.new("Frame")
 divider.Name = "Divider"
-divider.Size = UDim2.new(0, 1, 1, -16)
-divider.Position = UDim2.new(0.5, 0, 0, 8)
+divider.Size = UDim2.new(0, 2, 1, -16)
+divider.Position = UDim2.new(0.5, -1, 0, 8)
 divider.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 divider.BorderSizePixel = 0
 divider.Parent = mainFrame
 
--- LADO DIREITO: MÉTODOS DE KILL
+-- LADO DIREITO: MÉTODOS E LANÇAR
 local rightFrame = Instance.new("Frame")
 rightFrame.Name = "RightFrame"
 rightFrame.Size = UDim2.new(0.48, 0, 1, -16)
@@ -169,21 +173,23 @@ rightFrame.Position = UDim2.new(0.52, 0, 0, 8)
 rightFrame.BackgroundTransparency = 1
 rightFrame.Parent = mainFrame
 
+-- Título
 local titleRight = Instance.new("TextLabel")
 titleRight.Name = "TitleRight"
-titleRight.Size = UDim2.new(1, 0, 0, 32)
+titleRight.Size = UDim2.new(1, 0, 0, 28)
 titleRight.BackgroundTransparency = 1
-titleRight.Text = "Métodos de Kill do\nSELECT MATTER V4"
+titleRight.Text = "KILL CAUSE THE SPWAN"
 titleRight.TextColor3 = Color3.fromRGB(255, 255, 255)
-titleRight.Font = Enum.Font.SourceSansBold
-titleRight.TextSize = 13
+titleRight.Font = Enum.Font.Arcade
+titleRight.TextSize = 15
 titleRight.TextXAlignment = Enum.TextXAlignment.Center
 titleRight.Parent = rightFrame
 
+-- Lista de Métodos
 local methodScroll = Instance.new("ScrollingFrame")
 methodScroll.Name = "MethodScroll"
-methodScroll.Size = UDim2.new(1, 0, 1, -36)
-methodScroll.Position = UDim2.new(0, 0, 0, 36)
+methodScroll.Size = UDim2.new(1, 0, 1, -70)
+methodScroll.Position = UDim2.new(0, 0, 0, 32)
 methodScroll.BackgroundTransparency = 1
 methodScroll.BorderSizePixel = 0
 methodScroll.ScrollBarThickness = 3
@@ -196,21 +202,35 @@ methodLayout.SortOrder = Enum.SortOrder.LayoutOrder
 methodLayout.Padding = UDim.new(0, 4)
 methodLayout.Parent = methodScroll
 
-local metodos = {
-    "VEÍCULO AZUL 1",
-    "Helicóptero 1 New",
-    "Car LEGO 1",
-    "JATT 1 NEW"
+local listaMetodos = {
+    {Id = "Method I", NomeExibicao = "Method I (Veículo Azul)"},
+    {Id = "Method II", NomeExibicao = "Method II"},
+    {Id = "Method III", NomeExibicao = "Method III"},
+    {Id = "Method IV", NomeExibicao = "Method IV"}
 }
+
+-- Botão LANÇAR ON / OFF
+local btnLancar = Instance.new("TextButton")
+btnLancar.Name = "BtnLancar"
+btnLancar.Size = UDim2.new(0.8, 0, 0, 30)
+btnLancar.Position = UDim2.new(0.1, 0, 1, -32)
+btnLancar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+btnLancar.BorderColor3 = Color3.fromRGB(255, 255, 255)
+btnLancar.BorderSizePixel = 2
+btnLancar.Text = "LANÇAR OFF"
+btnLancar.TextColor3 = Color3.fromRGB(255, 255, 255)
+btnLancar.Font = Enum.Font.Arcade
+btnLancar.TextSize = 14
+btnLancar.Parent = rightFrame
 
 -- BOTÃO DA TOOL NA TELA
 local actionButton = Instance.new("TextButton")
 actionButton.Name = "SelectMatterV4Button"
 actionButton.Size = UDim2.new(0, 65, 0, 65)
-actionButton.Position = UDim2.new(0.5, -70, 0.85, 0)
+actionButton.Position = UDim2.new(0.5, -32, 0.85, 0)
 actionButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
 actionButton.BorderSizePixel = 0
-actionButton.Text = "SELECT\nMATTER V4"
+actionButton.Text = "SELECT\nMATTER\nV4"
 actionButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 actionButton.Font = Enum.Font.Arcade
 actionButton.TextScaled = true
@@ -235,17 +255,16 @@ uiCorner.CornerRadius = UDim.new(0, 2)
 uiCorner.Parent = actionButton
 
 -- ============================================
--- LÓGICA DE FUNCIONAMENTO
+-- LÓGICA DE EXECUÇÃO & FLING AUTOMÁTICO
 -- ============================================
 
-local function atualizarTexto()
+local function atualizarTextoBotao()
     if #objetosSelecionados > 0 then
         actionButton.Text = "DESTROY\n(" .. #objetosSelecionados .. ")"
     else
-        actionButton.Text = "SELECT\nMATTER V4"
+        actionButton.Text = "SELECT\nMATTER\nV4"
     end
 end
-
 local function resetarEstado()
     if conexaoAtaque then
         conexaoAtaque:Disconnect()
@@ -253,14 +272,18 @@ local function resetarEstado()
     end
     objetosSelecionados = {}
     modoAtivo = false
+    lancarAtivo = false
     loopKillAtivo = false
     jogadorAlvoSelecionado = nil
     actionButton.BackgroundTransparency = 0
     actionButton.TextTransparency = 0
     btnLoopKill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
     btnLoopKill.TextColor3 = Color3.fromRGB(0, 0, 0)
+    btnLancar.Text = "LANÇAR OFF"
+    btnLancar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    btnLancar.TextColor3 = Color3.fromRGB(255, 255, 255)
     mainFrame.Visible = false
-    atualizarTexto()
+    atualizarTextoBotao()
 end
 
 local function aplicarMotoresFling(corpo)
@@ -299,17 +322,18 @@ local function executarBypassNetworkOwnership(assentoAlvo)
     local posicaoOriginal = meuHRP.CFrame
 
     meuHRP.CFrame = assentoAlvo.CFrame
-    task.wait(0.5) 
+    task.wait(0.4) 
 
     meuHum.Sit = false
     meuHum.Jump = true
     meuHRP.CFrame = assentoAlvo.CFrame + Vector3.new(0, 8, 0) 
 
-    task.wait(0.3) 
+    task.wait(0.2) 
 
     meuHRP.CFrame = posicaoOriginal
 end
 
+-- Ataque Orbital (Fling)
 local function iniciarAtaqueMassa(alvoPlayer)
     if not alvoPlayer then return end
     local alvoChar = alvoPlayer.Character
@@ -381,7 +405,7 @@ local function iniciarAtaqueMassa(alvoPlayer)
                     objeto.RotVelocity = Vector3.new(999999, 999999, 999999)
                 else
                     table.remove(objetosSelecionados, i)
-                    atualizarTexto()
+                    atualizarTextoBotao()
                 end
             end
         end
@@ -392,7 +416,91 @@ local function iniciarAtaqueMassa(alvoPlayer)
 end
 
 -- ============================================
--- PREENCHIMENTO LIMPO DA LISTA (SEM CAIXAS)
+-- RECONHECIMENTO E CAPTURA DO VEÍCULOS (METHOD I)
+-- ============================================
+
+local function invocarEObterVeiculoAzul()
+    -- Disparar RemoteEvent do Veículo Azul (Bobsled)
+    pcall(function()
+        local re = ReplicatedStorage:WaitForChild("RE", 2):WaitForChild("1Ca1r", 2)
+        if re then
+            re:FireServer("PickingCar", "Bobsled", "Event")
+        end
+    end)
+
+    task.wait(0.5)
+
+    local vehiclesFolder = Workspace:FindFirstChild("Vehicles")
+    local veiculoEncontrado = nil
+
+    if vehiclesFolder then
+        for _, child in pairs(vehiclesFolder:GetChildren()) do
+            if child:IsA("Model") and (child.Name:find(lp.Name) or child.Name:find("Car") or child.Name:find("Bobsled")) then
+                veiculoEncontrado = child
+                break
+            end
+        end
+    end
+
+    if not veiculoEncontrado then
+        for _, child in pairs(Workspace:GetChildren()) do
+            if child:IsA("Model") and child.Name:find(lp.Name) and child.Name:find("Car") then
+                veiculoEncontrado = child
+                break
+            end
+        end
+    end
+
+    return veiculoEncontrado
+end
+
+local function capturarEAtacarComVeiculo(veiculoModel, alvoPlayer)
+    if not veiculoModel or not alvoPlayer then return end
+
+    objetosSelecionados = {}
+
+    -- Encontrar assento para o Bypass
+    local seatsFolder = veiculoModel:FindFirstChild("Seats") or veiculoModel
+    local assento = seatsFolder:FindFirstChildOfClass("VehicleSeat") or veiculoModel:FindFirstChildOfClass("VehicleSeat") or seatsFolder:FindFirstChild("VehicleSeat", true)
+
+    if assento then
+        executarBypassNetworkOwnership(assento)
+    end
+
+    -- Adicionar partes físicas não-ancoradas
+    for _, desc in pairs(veiculoModel:GetDescendants()) do
+        if desc:IsA("BasePart") and not desc.Anchored then
+            table.insert(objetosSelecionados, desc)
+        end
+    end
+
+    atualizarTextoBotao()
+
+    if #objetosSelecionados > 0 then
+        iniciarAtaqueMassa(alvoPlayer)
+    end
+end
+
+local function executarLancamentoAuto()
+    if not lancarAtivo or not jogadorAlvoSelecionado then return end
+
+    if metodoSelecionado == "Method I" then
+        task.spawn(function()
+            local veiculo = invocarEObterVeiculoAzul()
+            if veiculo then
+                capturarEAtacarComVeiculo(veiculo, jogadorAlvoSelecionado)
+            end
+        end)
+    else
+        -- Integração com o adaptador para outros métodos
+        if _G.ScriptAdapter and _G.ScriptAdapter.InvokeVehicle then
+            _G.ScriptAdapter:InvokeVehicle(metodoSelecionado, jogadorAlvoSelecionado)
+        end
+    end
+end
+
+-- ============================================
+-- ATUALIZAÇÃO DA LISTA DE JOGADORES E MÉTODOS
 -- ============================================
 
 local function atualizarListaJogadores()
@@ -413,13 +521,13 @@ local function atualizarListaJogadores()
             if filtro == "" or nome:lower():find(filtro) or displayName:lower():find(filtro) then
                 local pBtn = Instance.new("TextButton")
                 pBtn.Name = nome
-                pBtn.Size = UDim2.new(1, 0, 0, 20)
+                pBtn.Size = UDim2.new(1, 0, 0, 22)
                 pBtn.BackgroundTransparency = 1
                 pBtn.BorderSizePixel = 0
                 pBtn.Text = displayName
                 pBtn.TextColor3 = (jogadorAlvoSelecionado == plr) and Color3.fromRGB(255, 220, 0) or Color3.fromRGB(255, 255, 255)
-                pBtn.Font = Enum.Font.SourceSansBold
-                pBtn.TextSize = 14
+                pBtn.Font = Enum.Font.Arcade
+                pBtn.TextSize = 15
                 pBtn.TextXAlignment = Enum.TextXAlignment.Left
                 pBtn.Parent = playerScroll
 
@@ -427,12 +535,14 @@ local function atualizarListaJogadores()
                     jogadorAlvoSelecionado = plr
                     atualizarListaJogadores()
 
-                    if #objetosSelecionados > 0 then
+                    if lancarAtivo then
+                        executarLancamentoAuto()
+                    elseif #objetosSelecionados > 0 then
                         iniciarAtaqueMassa(plr)
                     end
                 end)
 
-                alturaTotal = alturaTotal + 22
+                alturaTotal = alturaTotal + 25
             end
         end
     end
@@ -440,43 +550,55 @@ local function atualizarListaJogadores()
     playerScroll.CanvasSize = UDim2.new(0, 0, 0, alturaTotal)
 end
 
-searchBox:GetPropertyChangedSignal("Text"):Connect(atualizarListaJogadores)
-Players.PlayerAdded:Connect(atualizarListaJogadores)
-Players.PlayerRemoving:Connect(atualizarListaJogadores)
-
--- ============================================
--- PREENCHIMENTO LIMPO DE MÉTODOS (DIREITA)
--- ============================================
-
 local function criarBotoesMetodos()
     local alturaTotal = 0
-    for _, nomeMetodo in ipairs(metodos) do
+    for _, item in ipairs(listaMetodos) do
         local mBtn = Instance.new("TextButton")
-        mBtn.Name = nomeMetodo
-        mBtn.Size = UDim2.new(1, 0, 0, 22)
+        mBtn.Name = item.Id
+        mBtn.Size = UDim2.new(1, 0, 0, 24)
         mBtn.BackgroundTransparency = 1
         mBtn.BorderSizePixel = 0
-        mBtn.Text = nomeMetodo
-        mBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        mBtn.Font = Enum.Font.SourceSansBold
-        mBtn.TextSize = 14
+        mBtn.Text = item.Id
+        mBtn.TextColor3 = (metodoSelecionado == item.Id) and Color3.fromRGB(255, 220, 0) or Color3.fromRGB(255, 255, 255)
+        mBtn.Font = Enum.Font.Arcade
+        mBtn.TextSize = 16
         mBtn.TextXAlignment = Enum.TextXAlignment.Left
         mBtn.Parent = methodScroll
 
         mBtn.MouseButton1Click:Connect(function()
-            if _G.ScriptAdapter and _G.ScriptAdapter.InvokeVehicle then
-                _G.ScriptAdapter:InvokeVehicle(nomeMetodo, jogadorAlvoSelecionado)
-            end
+            metodoSelecionado = item.Id
+            criarBotoesMetodos()
 
-            if jogadorAlvoSelecionado then
-                iniciarAtaqueMassa(jogadorAlvoSelecionado)
+            if lancarAtivo and jogadorAlvoSelecionado then
+                executarLancamentoAuto()
             end
         end)
 
-        alturaTotal = alturaTotal + 26
+        alturaTotal = alturaTotal + 28
     end
     methodScroll.CanvasSize = UDim2.new(0, 0, 0, alturaTotal)
 end
+
+-- ============================================
+-- EVENTOS DOS BOTÕES
+-- ============================================
+
+btnLancar.MouseButton1Click:Connect(function()
+    lancarAtivo = not lancarAtivo
+    if lancarAtivo then
+        btnLancar.Text = "LANÇAR ON"
+        btnLancar.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        btnLancar.TextColor3 = Color3.fromRGB(0, 0, 0)
+        
+        if jogadorAlvoSelecionado then
+            executarLancamentoAuto()
+        end
+    else
+        btnLancar.Text = "LANÇAR OFF"
+        btnLancar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        btnLancar.TextColor3 = Color3.fromRGB(255, 255, 255)
+    end
+end)
 
 btnLoopKill.MouseButton1Click:Connect(function()
     loopKillAtivo = not loopKillAtivo
@@ -484,7 +606,7 @@ btnLoopKill.MouseButton1Click:Connect(function()
         btnLoopKill.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
         btnLoopKill.TextColor3 = Color3.fromRGB(255, 255, 255)
         if jogadorAlvoSelecionado then
-            iniciarAtaqueMassa(jogadorAlvoSelecionado)
+            executarLancamentoAuto()
         end
     else
         btnLoopKill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
@@ -496,15 +618,12 @@ btnKillAllOff.MouseButton1Click:Connect(function()
     resetarEstado()
 end)
 
--- ============================================
--- EVENTOS DE UI E CAPTURA NO MUNDO
--- ============================================
+searchBox:GetPropertyChangedSignal("Text"):Connect(atualizarListaJogadores)
+Players.PlayerAdded:Connect(atualizarListaJogadores)
+Players.PlayerRemoving:Connect(atualizarListaJogadores)
 
+-- Alternar UI principal pelo botão da Tool
 actionButton.MouseButton1Click:Connect(function()
-    if _G.ScriptAdapter and _G.ScriptAdapter.MainPanel and _G.ScriptAdapter.MainPanel.Visible then
-        return
-    end
-
     if modoAtivo then
         resetarEstado()
     else
@@ -513,75 +632,6 @@ actionButton.MouseButton1Click:Connect(function()
         actionButton.TextTransparency = 0.2
         mainFrame.Visible = true
         atualizarListaJogadores()
-    end
-end)
-
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed or not modoAtivo then return end
-
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        local pos = input.Position
-        local unitRay = camera:ScreenPointToRay(pos.X, pos.Y)
-
-        local raycastParams = RaycastParams.new()
-        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-        raycastParams.FilterDescendantsInstances = {character}
-
-        local raycastResult = Workspace:Raycast(unitRay.Origin, unitRay.Direction * 50000, raycastParams)
-
-        if raycastResult and raycastResult.Instance then
-            local hitPart = raycastResult.Instance
-            local model = hitPart:FindFirstAncestorOfClass("Model")
-
-            if model and model:FindFirstChild("Humanoid") then
-                local tPlayer = Players:GetPlayerFromCharacter(model)
-
-                if tPlayer and tPlayer ~= lp then
-                    jogadorAlvoSelecionado = tPlayer
-                    atualizarListaJogadores()
-
-                    if #objetosSelecionados > 0 then
-                        iniciarAtaqueMassa(tPlayer)
-                    end
-                end
-            else
-                local alvoFisico = nil
-                local modeloVeiculo = hitPart:FindFirstAncestorOfClass("Model") or hitPart
-
-                if hitPart.Anchored == false then
-                    if hitPart:IsA("BasePart") then
-                        alvoFisico = hitPart
-                    elseif modeloVeiculo:IsA("Model") and modeloVeiculo.PrimaryPart then
-                        alvoFisico = modeloVeiculo.PrimaryPart
-                    else
-                        alvoFisico = hitPart
-                    end
-                end
-
-                if alvoFisico then
-                    if not table.find(objetosSelecionados, alvoFisico) then
-                        table.insert(objetosSelecionados, alvoFisico)
-                        atualizarTexto()
-
-                        local assentoEncontrado = nil
-                        if modeloVeiculo then
-                            assentoEncontrado =modeloVeiculo:FindFirstChildOfClass("VehicleSeat") or modeloVeiculo:FindFirstChild("PilotSeat", true)
-                        end
-
-                        if not assentoEncontrado and hitPart:FindFirstAncestor("Helicopters") then
-                            local modeloPaiDireto = hitPart:FindFirstAncestor("ChinookRescue") or hitPart.Parent
-                            if modeloPaiDireto then
-                                assentoEncontrado = modeloPaiDireto:FindFirstChild("PilotSeat", true) or modeloPaiDireto:FindFirstChildOfClass("VehicleSeat")
-                            end
-                        end
-
-                        if assentoEncontrado and assentoEncontrado:IsA("BasePart") then
-                            executarBypassNetworkOwnership(assentoEncontrado)
-                        end
-                    end
-                end
-            end
-        end
     end
 end)
 
