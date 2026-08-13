@@ -573,7 +573,7 @@ local function criarBotoesMetodos()
             if lancarAtivo and jogadorAlvoSelecionado then
                 executarLancamentoAuto()
             end
-        end)
+     end)
 
         alturaTotal = alturaTotal + 32
     end
@@ -664,3 +664,4 @@ if _G.ScriptAdapter and _G.ScriptAdapter.RegisterTool then
     _G.ScriptAdapter:RegisterTool(toolData)
 else
     table.insert(_G.ScriptAdapter.Queue, toolData)
+end
