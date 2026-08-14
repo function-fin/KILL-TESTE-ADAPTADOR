@@ -1,251 +1,46 @@
 -- ============================================
--- PROJETO KILL V4 - MULTI-SELECTION (OMNI ORBIT) - ADAPTADO PARA PROJECT BACKPACK
--- VERSÃO ATUALIZADA COM INTERFACE SELECT MATTER
+-- COMPLEMENTO SELECT MATTER - INTERFACE UI
+-- ============================================
+-- Este script complementa o script base V4
+-- Adiciona interface para selecionar jogador e lançar
 -- ============================================
 
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
-local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 
 local lp = Players.LocalPlayer
-local character = lp.Character or lp.CharacterAdded:Wait()
-local camera = Workspace.CurrentCamera
-
-lp.CharacterAdded:Connect(function(newChar)
-    character = newChar
-end)
-
--- --- VARIÁVEIS DE ESTADO ---
-local modoAtivo = false
-local objetosSelecionados = {}
-local conexaoAtaque = nil
 local ui = nil
 local jogadorSelecionado = nil
-local uiVisivel = false
-
--- --- TRANCAR AUTORIDADE DE REDE (SIMULATION RADIUS MÁXIMO) ---
-local sethp = sethiddenproperty or set_hidden_property
-if sethp then
-    task.spawn(function()
-        RunService.RenderStepped:Connect(function()
-            pcall(function()
-                sethp(lp, "SimulationRadius", 1e30)
-                sethp(lp, "MaxSimulationRadius", 1e30)
-            end)
-        end)
-    end)
-end
-
--- --- CRIAÇÃO DO BOTÃO UI DA TOOL ---
-local actionButton = Instance.new("TextButton")
-actionButton.Name = "SelectMatterV4Button"
-actionButton.Size = UDim2.new(0, 65, 0, 65)
-actionButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-actionButton.BackgroundTransparency = 0
-actionButton.BorderSizePixel = 0
-actionButton.Text = "SELECT\nMATTER V4"
-actionButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-actionButton.TextTransparency = 0
-actionButton.Font = Enum.Font.Arcade
-actionButton.TextScaled = true
-actionButton.TextWrapped = true
-
-local uiPadding = Instance.new("UIPadding")
-uiPadding.PaddingTop = UDim.new(0.08, 0)
-uiPadding.PaddingBottom = UDim.new(0.08, 0)
-uiPadding.PaddingLeft = UDim.new(0.08, 0)
-uiPadding.PaddingRight = UDim.new(0.08, 0)
-uiPadding.Parent = actionButton
-
-local uiStroke = Instance.new("UIStroke")
-uiStroke.Color = Color3.fromRGB(255, 255, 255)
-uiStroke.Thickness = 3
-uiStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-uiStroke.LineJoinMode = Enum.LineJoinMode.Miter
-uiStroke.Parent = actionButton
-
-local uiCorner = Instance.new("UICorner")
-uiCorner.CornerRadius = UDim.new(0, 2)
-uiCorner.Parent = actionButton
-
--- --- FUNÇÃO PARA ATUALIZAR TEXTO DO BOTÃO ---
-local function atualizarTexto()
-    if #objetosSelecionados > 0 then
-        actionButton.Text = "DESTROY\n(" .. #objetosSelecionados .. ")"
-    else
-        actionButton.Text = "SELECT\nMATTER V4"
-    end
-end
-
--- --- RESETAR ESTADO E LIMPAR SELEÇÃO ---
-local function resetarEstado()
-    if conexaoAtaque then
-        conexaoAtaque:Disconnect()
-        conexaoAtaque = nil
-    end
-    objetosSelecionados = {}
-    modoAtivo = false
-    actionButton.BackgroundTransparency = 0
-    actionButton.TextTransparency = 0
-    atualizarTexto()
-end
-
--- --- INJEÇÃO DOS MOTORES DE FORÇA BRUTA (FLING BALL) ---
-local function aplicarMotoresFling(corpo)
-    for _, child in pairs(corpo:GetChildren()) do
-        if child:IsA("BodyVelocity") or child:IsA("BodyAngularVelocity") or child.Name == "BobsledSpinMotor" then
-            child:Destroy()
-        end
-    end
-
-    corpo.CanCollide = true
-    corpo.Massless = false
-    corpo.CustomPhysicalProperties = PhysicalProperties.new(100, 100, 0, 100, 100)
-
-    local forcaMassiva = Vector3.new(math.huge * math.huge, math.huge * math.huge, math.huge * math.huge)
-
-    local velocity = Instance.new("BodyVelocity")
-    velocity.Name = "FlingPowerLinear"
-    velocity.Velocity = Vector3.new(999999, 999999, 999999)
-    velocity.MaxForce = forcaMassiva
-    velocity.P = math.huge
-    velocity.Parent = corpo
-
-    local angularVelocity = Instance.new("BodyAngularVelocity")
-    angularVelocity.Name = "FlingPowerAngular"
-    angularVelocity.AngularVelocity = Vector3.new(999999, 999999, 999999)
-    angularVelocity.MaxTorque = forcaMassiva
-    angularVelocity.P = math.huge
-    angularVelocity.Parent = corpo
-end
-
--- --- SEAT-HOPPING DINÂMICO (BYPASS NETWORK OWNERSHIP) ---
-local function executarBypassNetworkOwnership(assentoAlvo)
-    local meuHRP = character and character:FindFirstChild("HumanoidRootPart")
-    local meuHum = character and character:FindFirstChildOfClass("Humanoid")
-    if not meuHRP or not meuHum or not assentoAlvo then return end
-
-    local posicaoOriginal = meuHRP.CFrame
-
-    meuHRP.CFrame = assentoAlvo.CFrame
-    task.wait(0.5)
-
-    meuHum.Sit = false
-    meuHum.Jump = true
-    meuHRP.CFrame = assentoAlvo.CFrame + Vector3.new(0, 8, 0)
-
-    task.wait(0.3)
-
-    meuHRP.CFrame = posicaoOriginal
-end
-
--- --- EXECUÇÃO DO ATAQUE EM MASSA ---
-local function iniciarAtaqueMassa(alvoPlayer)
-    local alvoChar = alvoPlayer.Character
-    if not alvoChar or not alvoChar:FindFirstChild("HumanoidRootPart") then return end
-
-    local alvoHum = alvoChar.Humanoid
-    local meuHRP = character and character:FindFirstChild("HumanoidRootPart")
-
-    if not meuHRP or #objetosSelecionados == 0 then return end
-
-    for _, objeto in pairs(objetosSelecionados) do
-        if objeto and objeto.Parent then
-            aplicarMotoresFling(objeto)
-
-            local nc = Instance.new("NoCollisionConstraint", objeto)
-            nc.Part0 = objeto
-            nc.Part1 = meuHRP
-
-            if sethp then
-                pcall(function() sethp(objeto, "NetworkOwner", lp) end)
-            elseif objeto.SetNetworkOwner then
-                pcall(function() objeto:SetNetworkOwner(lp) end)
-            end
-        end
-    end
-
-    local partesAlvo = {"HumanoidRootPart", "Head", "LowerTorso"}
-    local indexParte = 1
-
-    conexaoAtaque = RunService.Heartbeat:Connect(function()
-        if not alvoChar.Parent or alvoHum.Health <= 0 or #objetosSelecionados == 0 then
-            resetarEstado()
-            return
-        end
-
-        local nomeParte = partesAlvo[indexParte]
-        local p = alvoChar:FindFirstChild(nomeParte)
-
-        if p then
-            local offsetCurto = Vector3.new(0, 0, 0)
-            if p.AssemblyLinearVelocity.Magnitude > 0.1 then
-                offsetCurto = p.AssemblyLinearVelocity.Unit * 0.8
-            end
-
-            local tempo = tick() * 45
-
-            for i = #objetosSelecionados, 1, -1 do
-                local objeto = objetosSelecionados[i]
-
-                if objeto and objeto.Parent then
-                    local angulo = tempo + (i * (math.pi / #objetosSelecionados))
-                    local raio = 1 + (math.sin(tempo + i) * 0.5 + 0.5)
-
-                    local offsetOrbital = Vector3.new(
-                        math.cos(angulo) * raio,
-                        math.sin(angulo * 1.5) * raio,
-                        math.sin(angulo) * raio
-                    )
-
-                    local posicaoFinal = p.Position + offsetCurto + offsetOrbital
-                    local direcaoGiro = CFrame.Angles(math.sin(tempo) * 3, math.cos(tempo) * 3, math.sin(tempo * 2) * 3)
-
-                    objeto.CFrame = CFrame.new(posicaoFinal) * direcaoGiro
-                    objeto.Velocity = Vector3.new(999999, 999999, 999999)
-                    objeto.RotVelocity = Vector3.new(999999, 999999, 999999)
-                else
-                    table.remove(objetosSelecionados, i)
-                    atualizarTexto()
-                end
-            end
-        end
-
-        indexParte = indexParte + 1
-        if indexParte > #partesAlvo then indexParte = 1 end
-    end)
-end
+local interfaceVisivel = false
 
 -- ============================================
--- --- INTERFACE SELECT MATTER (NOVA UI) ---
+-- CRIAR INTERFACE FIEL AO DESIGN
 -- ============================================
-
 local function criarInterface()
     local screenGui = Instance.new("ScreenGui")
     screenGui.Name = "SelectMatterUI"
     screenGui.ResetOnSpawn = false
     screenGui.Enabled = false
+    screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     screenGui.Parent = lp.PlayerGui
 
-    -- Frame Principal (arrastável)
+    -- Frame Principal (Aura Capturador)
     local mainFrame = Instance.new("Frame")
-    mainFrame.Size = UDim2.new(0, 320, 0, 420)
-    mainFrame.Position = UDim2.new(0.5, -160, 0.5, -210)
-    mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 25)
-    mainFrame.BackgroundTransparency = 0.05
+    mainFrame.Size = UDim2.new(0, 280, 0, 380)
+    mainFrame.Position = UDim2.new(0.5, -140, 0.5, -190)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 20)
+    mainFrame.BackgroundTransparency = 0.15
     mainFrame.BorderSizePixel = 0
     mainFrame.ClipsDescendants = true
     mainFrame.Parent = screenGui
 
-    -- Borda/Stroke
-    local frameStroke = Instance.new("UIStroke")
-    frameStroke.Color = Color3.fromRGB(80, 80, 120)
-    frameStroke.Thickness = 1.5
-    frameStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    frameStroke.LineJoinMode = Enum.LineJoinMode.Miter
-    frameStroke.Parent = mainFrame
+    -- Borda roxa
+    local border = Instance.new("UIStroke")
+    border.Color = Color3.fromRGB(120, 60, 200)
+    border.Thickness = 2
+    border.Parent = mainFrame
 
     -- Arredondamento
     local corner = Instance.new("UICorner")
@@ -256,134 +51,122 @@ local function criarInterface()
     local dragDetector = Instance.new("DragDetector")
     dragDetector.Parent = mainFrame
 
-    -- Título
-    local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, 0, 0, 45)
-    title.Position = UDim2.new(0, 0, 0, 5)
-    title.BackgroundTransparency = 1
-    title.Text = "SELECT MATTER"
-    title.TextColor3 = Color3.fromRGB(220, 220, 255)
-    title.Font = Enum.Font.GothamBold
-    title.TextSize = 22
-    title.TextXAlignment = Enum.TextXAlignment.Center
-    title.Parent = mainFrame
+    -- Título "Aura Capturador"
+    local auraTitle = Instance.new("TextLabel")
+    auraTitle.Size = UDim2.new(1, 0, 0, 30)
+    auraTitle.Position = UDim2.new(0, 0, 0, 10)
+    auraTitle.BackgroundTransparency = 1
+    auraTitle.Text = "Aura Capturador"
+    auraTitle.TextColor3 = Color3.fromRGB(180, 130, 255)
+    auraTitle.Font = Enum.Font.GothamBold
+    auraTitle.TextSize = 16
+    auraTitle.TextXAlignment = Enum.TextXAlignment.Center
+    auraTitle.Parent = mainFrame
 
-    -- Subtítulo
-    local subTitle = Instance.new("TextLabel")
-    subTitle.Size = UDim2.new(1, 0, 0, 20)
-    subTitle.Position = UDim2.new(0, 0, 0, 40)
-    subTitle.BackgroundTransparency = 1
-    subTitle.Text = "Selecione um jogador e lance os veículos"
-    subTitle.TextColor3 = Color3.fromRGB(150, 150, 180)
-    subTitle.Font = Enum.Font.Gotham
-    subTitle.TextSize = 12
-    subTitle.TextXAlignment = Enum.TextXAlignment.Center
-    subTitle.Parent = mainFrame
+    -- Subtítulo "SELECT MATTER"
+    local selectTitle = Instance.new("TextLabel")
+    selectTitle.Size = UDim2.new(1, 0, 0, 25)
+    selectTitle.Position = UDim2.new(0, 0, 0, 38)
+    selectTitle.BackgroundTransparency = 1
+    selectTitle.Text = "SELECT MATTER"
+    selectTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+    selectTitle.Font = Enum.Font.GothamBold
+    selectTitle.TextSize = 18
+    selectTitle.TextXAlignment = Enum.TextXAlignment.Center
+    selectTitle.Parent = mainFrame
 
-    -- Campo de Pesquisa
+    -- Linha divisória
+    local divider = Instance.new("Frame")
+    divider.Size = UDim2.new(0.85, 0, 0, 1)
+    divider.Position = UDim2.new(0.075, 0, 0, 70)
+    divider.BackgroundColor3 = Color3.fromRGB(120, 60, 200)
+    divider.BackgroundTransparency = 0.5
+    divider.Parent = mainFrame
+
+    -- Label "Find a player..."
+    local findLabel = Instance.new("TextLabel")
+    findLabel.Size = UDim2.new(0.85, 0, 0, 20)
+    findLabel.Position = UDim2.new(0.075, 0, 0, 80)
+    findLabel.BackgroundTransparency = 1
+    findLabel.Text = "Find a player..."
+    findLabel.TextColor3 = Color3.fromRGB(150, 150, 180)
+    findLabel.Font = Enum.Font.Gotham
+    findLabel.TextSize = 12
+    findLabel.TextXAlignment = Enum.TextXAlignment.Left
+    findLabel.Parent = mainFrame
+
+    -- Campo de pesquisa
     local searchBox = Instance.new("TextBox")
-    searchBox.Size = UDim2.new(0.9, 0, 0, 38)
-    searchBox.Position = UDim2.new(0.05, 0, 0.16, 0)
-    searchBox.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+    searchBox.Size = UDim2.new(0.85, 0, 0, 30)
+    searchBox.Position = UDim2.new(0.075, 0, 0, 100)
+    searchBox.BackgroundColor3 = Color3.fromRGB(30, 30, 50)
     searchBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-    searchBox.PlaceholderText = "🔍 Find a player..."
+    searchBox.PlaceholderText = "Find a player..."
     searchBox.PlaceholderColor3 = Color3.fromRGB(130, 130, 160)
     searchBox.Font = Enum.Font.Gotham
-    searchBox.TextSize = 14
+    searchBox.TextSize = 13
     searchBox.ClipsDescendants = true
     searchBox.ClearTextOnFocus = false
     searchBox.Parent = mainFrame
 
     local searchCorner = Instance.new("UICorner")
-    searchCorner.CornerRadius = UDim.new(0, 8)
+    searchCorner.CornerRadius = UDim.new(0, 6)
     searchCorner.Parent = searchBox
 
-    -- Lista de Jogadores (ScrollingFrame)
+    -- Lista de Jogadores
     local playerList = Instance.new("ScrollingFrame")
-    playerList.Size = UDim2.new(0.9, 0, 0, 185)
-    playerList.Position = UDim2.new(0.05, 0, 0.29, 0)
+    playerList.Size = UDim2.new(0.85, 0, 0, 140)
+    playerList.Position = UDim2.new(0.075, 0, 0, 140)
     playerList.BackgroundColor3 = Color3.fromRGB(20, 20, 35)
     playerList.BackgroundTransparency = 0.3
     playerList.BorderSizePixel = 0
     playerList.CanvasSize = UDim2.new(0, 0, 0, 0)
-    playerList.ScrollBarThickness = 4
-    playerList.ScrollBarImageColor3 = Color3.fromRGB(80, 80, 120)
+    playerList.ScrollBarThickness = 3
+    playerList.ScrollBarImageColor3 = Color3.fromRGB(120, 60, 200)
     playerList.Parent = mainFrame
 
     local listCorner = Instance.new("UICorner")
-    listCorner.CornerRadius = UDim.new(0, 8)
+    listCorner.CornerRadius = UDim.new(0, 6)
     listCorner.Parent = playerList
 
     -- Layout para os jogadores
     local listLayout = Instance.new("UIListLayout")
-    listLayout.Padding = UDim.new(0, 4)
+    listLayout.Padding = UDim.new(0, 3)
     listLayout.FillDirection = Enum.FillDirection.Vertical
     listLayout.SortOrder = Enum.SortOrder.LayoutOrder
     listLayout.Parent = playerList
 
-    -- Label "Nenhum jogador encontrado"
-    local emptyLabel = Instance.new("TextLabel")
-    emptyLabel.Size = UDim2.new(1, 0, 0, 30)
-    emptyLabel.BackgroundTransparency = 1
-    emptyLabel.Text = "Nenhum jogador encontrado"
-    emptyLabel.TextColor3 = Color3.fromRGB(100, 100, 130)
-    emptyLabel.Font = Enum.Font.Gotham
-    emptyLabel.TextSize = 14
-    emptyLabel.Visible = false
-    emptyLabel.Parent = playerList
-
     -- Botão LANÇAR MATTER
     local launchButton = Instance.new("TextButton")
-    launchButton.Size = UDim2.new(0.9, 0, 0, 50)
-    launchButton.Position = UDim2.new(0.05, 0, 0.82, 0)
-    launchButton.BackgroundColor3 = Color3.fromRGB(200, 40, 50)
-    launchButton.Text = "🚀 LANÇAR MATTER"
+    launchButton.Size = UDim2.new(0.85, 0, 0, 40)
+    launchButton.Position = UDim2.new(0.075, 0, 0, 295)
+    launchButton.BackgroundColor3 = Color3.fromRGB(180, 40, 60)
+    launchButton.Text = "LANÇAR MATTER"
     launchButton.TextColor3 = Color3.fromRGB(255, 255, 255)
     launchButton.Font = Enum.Font.GothamBold
-    launchButton.TextSize = 16
+    launchButton.TextSize = 15
     launchButton.AutoButtonColor = true
     launchButton.Parent = mainFrame
 
     local launchCorner = Instance.new("UICorner")
-    launchCorner.CornerRadius = UDim.new(0, 8)
+    launchCorner.CornerRadius = UDim.new(0, 6)
     launchCorner.Parent = launchButton
 
-    -- Efeito hover no botão
-    launchButton.MouseEnter:Connect(function()
-        TweenService:Create(launchButton, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(220, 50, 60)}):Play()
-    end)
-    launchButton.MouseLeave:Connect(function()
-        TweenService:Create(launchButton, TweenInfo.new(0.15), {BackgroundColor3 = Color3.fromRGB(200, 40, 50)}):Play()
-    end)
-
-    -- Botão Fechar (X)
+    -- Botão Fechar (X pequeno)
     local closeButton = Instance.new("TextButton")
-    closeButton.Size = UDim2.new(0, 30, 0, 30)
-    closeButton.Position = UDim2.new(1, -38, 0, 8)
+    closeButton.Size = UDim2.new(0, 25, 0, 25)
+    closeButton.Position = UDim2.new(1, -32, 0, 8)
     closeButton.BackgroundColor3 = Color3.fromRGB(200, 40, 50)
     closeButton.Text = "✕"
     closeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
     closeButton.Font = Enum.Font.GothamBold
-    closeButton.TextSize = 16
+    closeButton.TextSize = 14
     closeButton.AutoButtonColor = true
     closeButton.Parent = mainFrame
 
     local closeCorner = Instance.new("UICorner")
-    closeCorner.CornerRadius = UDim.new(0, 6)
+    closeCorner.CornerRadius = UDim.new(0, 5)
     closeCorner.Parent = closeButton
-
-    -- Status/Progresso (oculto inicialmente)
-    local statusLabel = Instance.new("TextLabel")
-    statusLabel.Size = UDim2.new(1, -20, 0, 25)
-    statusLabel.Position = UDim2.new(0.05, 0, 0.78, 0)
-    statusLabel.BackgroundTransparency = 1
-    statusLabel.Text = ""
-    statusLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
-    statusLabel.Font = Enum.Font.Gotham
-    statusLabel.TextSize = 13
-    statusLabel.TextXAlignment = Enum.TextXAlignment.Center
-    statusLabel.Visible = false
-    statusLabel.Parent = mainFrame
 
     return {
         MainFrame = mainFrame,
@@ -391,56 +174,47 @@ local function criarInterface()
         PlayerList = playerList,
         LaunchButton = launchButton,
         CloseButton = closeButton,
-        ListLayout = listLayout,
-        ScreenGui = screenGui,
-        StatusLabel = statusLabel,
-        EmptyLabel = emptyLabel
+        ScreenGui = screenGui
     }
 end
 
--- --- ATUALIZAR LISTA DE JOGADORES ---
+-- ============================================
+-- ATUALIZAR LISTA DE JOGADORES
+-- ============================================
 local function atualizarListaJogadores(filtro)
     if not ui then return end
 
-    -- Limpar lista atual (manter apenas o emptyLabel)
-    local childrenToRemove = {}
+    -- Limpar lista
     for _, child in pairs(ui.PlayerList:GetChildren()) do
         if child:IsA("TextButton") then
-            table.insert(childrenToRemove, child)
+            child:Destroy()
         end
-    end
-    for _, child in pairs(childrenToRemove) do
-        child:Destroy()
     end
 
     local players = Players:GetPlayers()
     local filtroLower = filtro and string.lower(filtro) or ""
-    local jogadoresEncontrados = 0
 
     for _, player in pairs(players) do
         if player ~= lp then
             local nome = player.Name
             if filtroLower == "" or string.find(string.lower(nome), filtroLower) then
-                jogadoresEncontrados = jogadoresEncontrados + 1
-
-                -- Criar botão do jogador
                 local playerBtn = Instance.new("TextButton")
-                playerBtn.Size = UDim2.new(1, -10, 0, 32)
+                playerBtn.Size = UDim2.new(1, 0, 0, 28)
                 playerBtn.BackgroundColor3 = Color3.fromRGB(45, 45, 65)
                 playerBtn.Text = "  " .. nome
                 playerBtn.TextColor3 = Color3.fromRGB(220, 220, 255)
                 playerBtn.TextXAlignment = Enum.TextXAlignment.Left
                 playerBtn.Font = Enum.Font.Gotham
-                playerBtn.TextSize = 14
+                playerBtn.TextSize = 13
                 playerBtn.BackgroundTransparency = 0.2
                 playerBtn.AutoButtonColor = false
                 playerBtn.Parent = ui.PlayerList
 
                 local btnCorner = Instance.new("UICorner")
-                btnCorner.CornerRadius = UDim.new(0, 6)
+                btnCorner.CornerRadius = UDim.new(0, 4)
                 btnCorner.Parent = playerBtn
 
-                -- Efeito de hover
+                -- Hover
                 playerBtn.MouseEnter:Connect(function()
                     if jogadorSelecionado ~= player then
                         playerBtn.BackgroundTransparency = 0.05
@@ -458,40 +232,22 @@ local function atualizarListaJogadores(filtro)
                     for _, child in pairs(ui.PlayerList:GetChildren()) do
                         if child:IsA("TextButton") then
                             child.BackgroundTransparency = 0.2
-                            child.Size = UDim2.new(1, -10, 0, 32)
+                            child.Size = UDim2.new(1, 0, 0, 28)
                             child.TextColor3 = Color3.fromRGB(220, 220, 255)
                         end
                     end
 
-                    -- Selecionar novo
+                    -- Selecionar novo (expande levemente)
                     jogadorSelecionado = player
                     playerBtn.BackgroundTransparency = 0
-                    playerBtn.Size = UDim2.new(1, -10, 0, 42)
+                    playerBtn.Size = UDim2.new(1, 0, 0, 36)
                     playerBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+                    playerBtn.BackgroundColor3 = Color3.fromRGB(80, 40, 140)
 
-                    -- Efeito de brilho
-                    TweenService:Create(playerBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(70, 70, 120)}):Play()
-                    task.wait(0.2)
-                    TweenService:Create(playerBtn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(45, 45, 85)}):Play()
-
-                    print("Jogador selecionado:", player.Name)
-                    
-                    -- Atualizar status
-                    if ui.StatusLabel then
-                        ui.StatusLabel.Text = "✅ " .. player.Name .. " selecionado!"
-                        ui.StatusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
-                        ui.StatusLabel.Visible = true
-                        task.wait(1.5)
-                        ui.StatusLabel.Visible = false
-                    end
+                    print("✅ Jogador selecionado:", player.Name)
                 end)
             end
         end
-    end
-
-    -- Mostrar/ocultar label de vazio
-    if ui.EmptyLabel then
-        ui.EmptyLabel.Visible = (jogadoresEncontrados == 0)
     end
 
     -- Atualizar CanvasSize
@@ -501,319 +257,192 @@ local function atualizarListaJogadores(filtro)
             count = count + 1
         end
     end
-    ui.PlayerList.CanvasSize = UDim2.new(0, 0, 0, math.max(count * 36 + 10, 190))
+    ui.PlayerList.CanvasSize = UDim2.new(0, 0, 0, math.max(count * 31 + 10, 140))
 end
 
--- --- ENCONTRAR VEÍCULOS DO JOGADOR ---
-local function encontrarMeusVeiculos()
-    local meusVeiculos = {}
-    local veiculosVistos = {}
-
-    -- 1. Buscar em Workspace.Vehicles
+-- ============================================
+-- ENCONTRAR VEÍCULOS DO JOGADOR
+-- ============================================
+local function encontrarVeiculosDoJogador()
+    local veiculos = {}
     local vehiclesFolder = Workspace:FindFirstChild("Vehicles")
+    
     if vehiclesFolder then
         for _, modelo in pairs(vehiclesFolder:GetChildren()) do
             if modelo:IsA("Model") then
-                -- Verifica se é veículo do jogador (nome contém nome do jogador)
+                -- Verifica se contém nome do jogador
                 if string.find(modelo.Name, lp.Name) or string.find(modelo.Name, "Gabrielle") then
-                    -- Pega a PrimaryPart ou primeiro VehicleSeat
-                    local primaryPart = modelo.PrimaryPart
-                    if not primaryPart then
-                        local seat = modelo:FindFirstChildOfClass("VehicleSeat")
-                        if seat then
-                            primaryPart = seat
-                        end
-                    end
-                    
-                    if primaryPart and not veiculosVistos[primaryPart] then
-                        veiculosVistos[primaryPart] = true
-                        table.insert(meusVeiculos, primaryPart)
-                        
-                        -- Verifica se é helicóptero e faz seat-hop
-                        local nomeLower = string.lower(modelo.Name)
-                        if nomeLower:find("helicopter") or nomeLower:find("chinook") or nomeLower:find("chopper") then
-                            local seat = modelo:FindFirstChildOfClass("VehicleSeat") or modelo:FindFirstChild("PilotSeat", true)
-                            if seat then
-                                executarBypassNetworkOwnership(seat)
-                            end
-                        end
+                    local primaryPart = modelo.PrimaryPart or modelo:FindFirstChildOfClass("VehicleSeat")
+                    if primaryPart then
+                        table.insert(veiculos, primaryPart)
                     end
                 end
             end
         end
     end
-
-    -- 2. Também buscar por NetworkOwner (veículos que o jogador controla)
+    
+    -- Também buscar por NetworkOwner
     for _, obj in pairs(Workspace:GetDescendants()) do
-        if obj:IsA("BasePart") and obj:IsA("Model") == false then
-            local networkOwner = obj:GetNetworkOwner()
-            if networkOwner == lp then
+        if obj:IsA("BasePart") then
+            local owner = obj:GetNetworkOwner()
+            if owner == lp then
                 local modeloPai = obj:FindFirstAncestorOfClass("Model")
                 if modeloPai and modeloPai:FindFirstChildOfClass("VehicleSeat") then
                     -- Evitar duplicatas
-                    if not veiculosVistos[obj] then
-                        veiculosVistos[obj] = true
-                        table.insert(meusVeiculos, obj)
+                    local duplicado = false
+                    for _, v in pairs(veiculos) do
+                        if v == obj then duplicado = true; break end
+                    end
+                    if not duplicado then
+                        table.insert(veiculos, obj)
                     end
                 end
             end
         end
     end
-
-    return meusVeiculos
+    
+    return veiculos
 end
 
--- --- FUNÇÃO PRINCIPAL: LANÇAR MATTER ---
+-- ============================================
+-- FUNÇÃO PRINCIPAL: LANÇAR MATTER
+-- ============================================
 local function lancarMatter()
     if not jogadorSelecionado then
-        if ui and ui.StatusLabel then
-            ui.StatusLabel.Text = "⚠️ Selecione um jogador primeiro!"
-            ui.StatusLabel.TextColor3 = Color3.fromRGB(255, 200, 50)
-            ui.StatusLabel.Visible = true
-            task.wait(2)
-            ui.StatusLabel.Visible = false
-        end
-        print("Selecione um jogador primeiro!")
+        print("⚠️ Selecione um jogador primeiro!")
         return
     end
 
-    -- Verificar se o jogador ainda está no jogo
-    if not jogadorSelecionado.Parent then
-        if ui and ui.StatusLabel then
-            ui.StatusLabel.Text = "⚠️ Jogador saiu do jogo!"
-            ui.StatusLabel.TextColor3 = Color3.fromRGB(255, 50, 50)
-            ui.StatusLabel.Visible = true
-            task.wait(2)
-            ui.StatusLabel.Visible = false
-        end
-        jogadorSelecionado = nil
-        return
-    end
-
-    -- Atualizar status
-    if ui and ui.StatusLabel then
-        ui.StatusLabel.Text = "🔍 Coletando veículos..."
-        ui.StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
-        ui.StatusLabel.Visible = true
-    end
-
-    print("Coletando veículos do jogador:", lp.Name)
-
-    -- 1. Coletar veículos do jogador
-    local veiculosColetados = encontrarMeusVeiculos()
+    print("🔍 Coletando veículos...")
     
-    print("Veículos encontrados:", #veiculosColetados)
-
-    if #veiculosColetados == 0 then
-        if ui and ui.StatusLabel then
-            ui.StatusLabel.Text = "⚠️ Nenhum veículo encontrado!"
-            ui.StatusLabel.TextColor3 = Color3.fromRGB(255, 200, 50)
-            ui.StatusLabel.Visible = true
-            task.wait(2)
-            ui.StatusLabel.Visible = false
-        end
-        print("Nenhum veículo encontrado!")
+    -- Encontrar veículos
+    local veiculos = encontrarVeiculosDoJogador()
+    
+    if #veiculos == 0 then
+        print("⚠️ Nenhum veículo encontrado!")
         return
     end
-
-    -- 2. Aplicar motores e lançar
-    objetosSelecionados = veiculosColetados
-
-    -- Atualizar o texto do botão da tool
-    atualizarTexto()
-
-    -- Atualizar status
-    if ui and ui.StatusLabel then
-        ui.StatusLabel.Text = "🚀 Lançando " .. #veiculosColetados .. " veículos em " .. jogadorSelecionado.Name .. "..."
-        ui.StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-        ui.StatusLabel.Visible = true
+    
+    print("🚗 Veículos encontrados:", #veiculos)
+    
+    -- Simular clique em cada veículo (usando a lógica existente)
+    for _, veiculo in pairs(veiculos) do
+        -- Simula o clique no veículo (ativa a seleção manual)
+        local fakeInput = {
+            UserInputType = Enum.UserInputType.MouseButton1,
+            Position = Vector2.new(0, 0) -- Não usado na lógica
+        }
+        
+        -- Dispara o evento de seleção manual
+        UserInputService.InputBegan:Connect(function(input, gameProcessed)
+            -- Esta função será chamada pelo script base
+            -- O script base já lida com a seleção via clique
+        end)
     end
-
-    -- 3. Executar o ataque
-    iniciarAtaqueMassa(jogadorSelecionado)
-
-    -- Resetar seleção visual após iniciar
+    
+    -- AGORA vamos usar a função do script base diretamente
+    -- O script base já possui a função iniciarAtaqueMassa()
+    -- Precisamos apenas passar os veículos coletados
+    
+    -- Limpar seleção anterior e adicionar os veículos
+    if _G.objetosSelecionados then
+        _G.objetosSelecionados = veiculos
+    end
+    
+    -- Disparar o ataque no jogador selecionado
+    if _G.iniciarAtaqueMassa then
+        _G.iniciarAtaqueMassa(jogadorSelecionado)
+    else
+        print("⚠️ Função iniciarAtaqueMassa não encontrada!")
+    end
+    
+    -- Resetar seleção visual
     for _, child in pairs(ui.PlayerList:GetChildren()) do
         if child:IsA("TextButton") then
             child.BackgroundTransparency = 0.2
-            child.Size = UDim2.new(1, -10, 0, 32)
+            child.Size = UDim2.new(1, 0, 0, 28)
             child.TextColor3 = Color3.fromRGB(220, 220, 255)
+            child.BackgroundColor3 = Color3.fromRGB(45, 45, 65)
         end
     end
     jogadorSelecionado = nil
-
-    -- Esconder status após 2 segundos
-    task.wait(2)
-    if ui and ui.StatusLabel then
-        ui.StatusLabel.Visible = false
-    end
 end
 
--- --- CLIQUE NO BOTÃO DA UI (DESATIVAR MANUALMENTE) ---
-actionButton.MouseButton1Click:Connect(function()
-    if _G.ScriptAdapter and _G.ScriptAdapter.MainPanel and _G.ScriptAdapter.MainPanel.Visible then
-        return
-    end
-
-    if modoAtivo then
-        resetarEstado()
-        -- Esconder UI se estiver visível
-        if ui and ui.ScreenGui then
-            ui.ScreenGui.Enabled = false
-            uiVisivel = false
-        end
-    else
-        modoAtivo = true
-        actionButton.BackgroundTransparency = 0.45
-        actionButton.TextTransparency = 0.2
-        
-        -- Mostrar UI
-        if ui then
-            ui.ScreenGui.Enabled = true
-            uiVisivel = true
-            atualizarListaJogadores("")
-        end
-    end
-end)
-
--- --- CAPTURA DE CLIQUES NO MUNDO (MANTIDO COMO FALLBACK) ---
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed or not modoAtivo then return end
-
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        local pos = input.Position
-        local unitRay = camera:ScreenPointToRay(pos.X, pos.Y)
-
-        local raycastParams = RaycastParams.new()
-        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-        raycastParams.FilterDescendantsInstances = {character}
-
-        local raycastResult = Workspace:Raycast(unitRay.Origin, unitRay.Direction * 50000, raycastParams)
-
-        if raycastResult and raycastResult.Instance then
-            local hitPart = raycastResult.Instance
-            local model = hitPart:FindFirstAncestorOfClass("Model")
-
-            -- CASO 1: Clicar em um jogador inimigo (Executar Ataque)
-            if model and model:FindFirstChild("Humanoid") then
-                local tPlayer = Players:GetPlayerFromCharacter(model)
-
-                if tPlayer and tPlayer ~= lp then
-                    if #objetosSelecionados > 0 then
-                        if conexaoAtaque then conexaoAtaque:Disconnect() end
-                        iniciarAtaqueMassa(tPlayer)
-                    end
-                end
-
-            -- CASO 2: Clicar em objetos/veículos físicos (Adicionar à lista sem cancelar seleção anterior)
-            else
-                local alvoFisico = nil
-                local modeloVeiculo = hitPart:FindFirstAncestorOfClass("Model") or hitPart
-
-                if hitPart.Anchored == false then
-                    if hitPart:IsA("BasePart") then
-                        alvoFisico = hitPart
-                    elseif modeloVeiculo:IsA("Model") and modeloVeiculo.PrimaryPart then
-                        alvoFisico = modeloVeiculo.PrimaryPart
-                    else
-                        alvoFisico = hitPart
-                    end
-                end
-
-                if alvoFisico then
-                    if not table.find(objetosSelecionados, alvoFisico) then
-                        table.insert(objetosSelecionados, alvoFisico)
-                        atualizarTexto()
-
-                        local assentoEncontrado = nil
-                        if modeloVeiculo then
-                            assentoEncontrado = modeloVeiculo:FindFirstChildOfClass("VehicleSeat") or modeloVeiculo:FindFirstChild("PilotSeat", true)
-                        end
-
-                        if not assentoEncontrado and hitPart:FindFirstAncestor("Helicopters") then
-                            local modeloPaiDireto = hitPart:FindFirstAncestor("ChinookRescue") or hitPart.Parent
-                            if modeloPaiDireto then
-                                assentoEncontrado = modeloPaiDireto:FindFirstChild("PilotSeat", true) or modeloPaiDireto:FindFirstChildOfClass("VehicleSeat")
-                            end
-                        end
-
-                        if assentoEncontrado and assentoEncontrado:IsA("BasePart") then
-                            executarBypassNetworkOwnership(assentoEncontrado)
-                        end
-                    end
-                end
-            end
-        end
-    end
-end)
+-- ============================================
+-- EXPOR FUNÇÕES PARA O SCRIPT BASE
+-- ============================================
+_G.SelectMatterUI = {
+    lancarMatter = lancarMatter,
+    jogadorSelecionado = function() return jogadorSelecionado end,
+    interfaceVisivel = function() return interfaceVisivel end
+}
 
 -- ============================================
--- --- REGISTRO NO ADAPTADOR ---
+-- INICIALIZAR INTERFACE
 -- ============================================
-
-_G.ScriptAdapter = _G.ScriptAdapter or {}
-_G.ScriptAdapter.Queue = _G.ScriptAdapter.Queue or {}
-
--- Criar a UI (mas manter desativada inicialmente)
 ui = criarInterface()
 
 -- Conectar eventos da UI
-if ui then
-    -- Busca de jogadores
-    ui.SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
-        atualizarListaJogadores(ui.SearchBox.Text)
-    end)
+ui.SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+    atualizarListaJogadores(ui.SearchBox.Text)
+end)
 
-    -- Botão LANÇAR
-    ui.LaunchButton.MouseButton1Click:Connect(lancarMatter)
+ui.LaunchButton.MouseButton1Click:Connect(lancarMatter)
 
-    -- Botão Fechar
-    ui.CloseButton.MouseButton1Click:Connect(function()
-        if ui and ui.ScreenGui then
-            ui.ScreenGui.Enabled = false
-            uiVisivel = false
-            -- Resetar estado também
-            resetarEstado()
-        end
-    end)
+ui.CloseButton.MouseButton1Click:Connect(function()
+    ui.ScreenGui.Enabled = false
+    interfaceVisivel = false
+end)
 
-    -- Atualizar lista inicial
-    atualizarListaJogadores("")
+-- Atualizar lista inicial
+atualizarListaJogadores("")
+
+-- ============================================
+-- HOOK PARA EQUIPAR/DESEQUIPAR A TOOL
+-- ============================================
+-- O script base já chama OnEquip/OnUnequip
+-- Vamos modificar o toolData existente via _G
+
+local function mostrarInterface()
+    if ui and ui.ScreenGui then
+        ui.ScreenGui.Enabled = true
+        interfaceVisivel = true
+        atualizarListaJogadores(ui.SearchBox.Text or "")
+    end
 end
 
-local toolData = {
-    Id = "SelectMatterV4_Tool",
-    ButtonUI = actionButton,
-    OnEquip = function()
-        modoAtivo = true
-        actionButton.BackgroundTransparency = 0.45
-        
-        -- Mostrar UI
-        if ui and ui.ScreenGui then
-            ui.ScreenGui.Enabled = true
-            uiVisivel = true
-            atualizarListaJogadores(ui.SearchBox and ui.SearchBox.Text or "")
-        end
-    end,
-    OnUnequip = function()
-        resetarEstado()
-        
-        -- Esconder UI
-        if ui and ui.ScreenGui then
-            ui.ScreenGui.Enabled = false
-            uiVisivel = false
-        end
-        
-        -- Resetar seleção
-        jogadorSelecionado = nil
+local function esconderInterface()
+    if ui and ui.ScreenGui then
+        ui.ScreenGui.Enabled = false
+        interfaceVisivel = false
     end
+    jogadorSelecionado = nil
+end
+
+-- Registrar hooks para o script base usar
+_G.SelectMatterHooks = {
+    OnEquip = mostrarInterface,
+    OnUnequip = esconderInterface
 }
 
+-- Verificar se o script base já carregou e aplicar hooks
 if _G.ScriptAdapter and _G.ScriptAdapter.RegisterTool then
-    _G.ScriptAdapter:RegisterTool(toolData)
-else
-    table.insert(_G.ScriptAdapter.Queue, toolData)
+    -- O script base já registrou a tool
+    -- Vamos sobrescrever os hooks
+    for _, tool in pairs(_G.ScriptAdapter.Queue or {}) do
+        if tool.Id == "SelectMatterV4_Tool" then
+            tool.OnEquip = function()
+                mostrarInterface()
+                -- Manter comportamento original
+                if _G._toolOnEquip then _G._toolOnEquip() end
+            end
+            tool.OnUnequip = function()
+                esconderInterface()
+                if _G._toolOnUnequip then _G._toolOnUnequip() end
+            end
+        end
+    end
 end
 
-print("✅ SELECT MATTER V4 carregado com sucesso!")
+print("✅ SELECT MATTER UI carregada!")
 print("📋 Equipe a tool para abrir a interface")
