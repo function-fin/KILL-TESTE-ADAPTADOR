@@ -1,5 +1,5 @@
 -- ============================================
--- PROJETO KILL V4 - MULTI-SELECTION (AURA CAPTURADOR V4) - CORRIGIDO V2
+-- PROJETO KILL V4 - MULTI-SELECTION (AURA CAPTURADOR V4) - CORRIGIDO V3
 -- ============================================
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -19,6 +19,8 @@ local alvoSelecionado = nil
 local posicaoOriginal = nil
 local guiCriada = false
 local bypassEmExecucao = false
+local aguardandoSeguranca = false -- NOVA: Controla se estamos aguardando voltar da posição segura
+local alvoParaAtacar = nil -- NOVA: Armazena o alvo para atacar após voltar
 
 -- --- RESETAR ESTADO COMPLETO ---
 local function resetarEstadoCompleto()
@@ -31,6 +33,8 @@ local function resetarEstadoCompleto()
     alvoSelecionado = nil
     posicaoOriginal = nil
     bypassEmExecucao = false
+    aguardandoSeguranca = false
+    alvoParaAtacar = nil
     
     if gui then
         gui.Enabled = false
@@ -71,13 +75,11 @@ end
 local function ehHelicoptero(instancia)
     if not instancia then return false end
     
-    -- Verifica se é um modelo
     local model = instancia:IsA("Model") and instancia or instancia:FindFirstAncestorOfClass("Model")
     if not model then return false end
     
     local nome = string.lower(model.Name)
     
-    -- Lista de nomes de helicópteros comuns
     local heliNomes = {
         "chinook", "heli", "copter", "helicopter", "chopper",
         "uh-60", "uh60", "ah-64", "ah64", "apache", "blackhawk",
@@ -87,14 +89,12 @@ local function ehHelicoptero(instancia)
         "rescue", "medevac", "transport"
     }
     
-    -- Verifica se o nome contém algum dos padrões
     for _, padrao in pairs(heliNomes) do
         if string.find(nome, padrao) then
             return true
         end
     end
     
-    -- Verifica se tem partes típicas de helicóptero
     if model:FindFirstChild("Rotor") or 
        model:FindFirstChild("MainRotor") or 
        model:FindFirstChild("TailRotor") or
@@ -111,15 +111,12 @@ end
 local function encontrarAssento(modelo)
     if not modelo then return nil end
     
-    -- Primeiro tenta VehicleSeat
     local assento = modelo:FindFirstChildOfClass("VehicleSeat")
     
-    -- Se não encontrar, tenta PilotsSeat
     if not assento then
         assento = modelo:FindFirstChild("PilotSeat", true)
     end
     
-    -- Se ainda não encontrar, procura por qualquer BasePart com nome que indique assento
     if not assento then
         for _, child in pairs(modelo:GetDescendants()) do
             if child:IsA("BasePart") then
@@ -136,8 +133,8 @@ local function encontrarAssento(modelo)
     return assento
 end
 
--- --- BYPASS NETWORK OWNERSHIP (SEAT-HOPPING) ---
-local function executarBypassNetworkOwnership(assentoAlvo)
+-- --- BYPASS NETWORK OWNERSHIP (SEAT-HOPPING) COM SEGURANÇA ---
+local function executarBypassNetworkOwnership(assentoAlvo, callbackAposSeguranca)
     if bypassEmExecucao then return false end
     
     local meuHRP = character and character:FindFirstChild("HumanoidRootPart")
@@ -147,38 +144,249 @@ local function executarBypassNetworkOwnership(assentoAlvo)
     -- Salvar posição original ANTES de fazer qualquer coisa
     posicaoOriginal = meuHRP.CFrame
     
-    -- Verificar se o assento é válido
     if not assentoAlvo:IsA("BasePart") then return false end
     
-    -- Verificar se o assento está acessível
     local distancia = (meuHRP.Position - assentoAlvo.Position).Magnitude
     if distancia > 100 then 
         return false 
     end
     
     bypassEmExecucao = true
+    aguardandoSeguranca = true
     
     -- Executar seat-hop
-    local sucesso = false
-    pcall(function()
-        -- Teleportar para o assento
-        meuHRP.CFrame = assentoAlvo.CFrame
-        task.wait(0.3)
+    task.spawn(function()
+        local sucesso = false
+        pcall(function()
+            -- Teleportar para o assento
+            meuHRP.CFrame = assentoAlvo.CFrame
+            task.wait(0.3)
+            
+            -- Sair do assento imediatamente
+            meuHum.Sit = false
+            meuHum.Jump = true
+            task.wait(0.1)
+            
+            -- Voltar para posição original
+            if posicaoOriginal then
+                meuHRP.CFrame = posicaoOriginal
+            end
+            sucesso = true
+        end)
         
-        -- Sair do assento imediatamente
-        meuHum.Sit = false
-        meuHum.Jump = true
-        task.wait(0.1)
+        bypassEmExecucao = false
+        aguardandoSeguranca = false
         
-        -- Voltar para posição original
-        if posicaoOriginal then
-            meuHRP.CFrame = posicaoOriginal
+        -- AGORA QUE ESTAMOS EM SEGURANÇA, EXECUTAR O ATAQUE
+        if sucesso and callbackAposSeguranca then
+            task.wait(0.2) -- Pequeno delay extra para garantir que está seguro
+            callbackAposSeguranca()
         end
-        sucesso = true
     end)
     
-    bypassEmExecucao = false
-    return sucesso
+    return true
+end
+
+-- --- MOTORES DE FLING ---
+local function aplicarMotoresFling(corpo)
+    for _, child in pairs(corpo:GetChildren()) do
+        if child:IsA("BodyVelocity") or child:IsA("BodyAngularVelocity") or child.Name == "BobsledSpinMotor" then
+            child:Destroy()
+        end
+    end
+
+    corpo.CanCollide = true
+    corpo.Massless = false
+    corpo.CustomPhysicalProperties = PhysicalProperties.new(100, 100, 0, 100, 100)
+
+    local forcaMassiva = Vector3.new(math.huge * math.huge, math.huge * math.huge, math.huge * math.huge)
+
+    local velocity = Instance.new("BodyVelocity")
+    velocity.Name = "FlingPowerLinear"
+    velocity.Velocity = Vector3.new(999999, 999999, 999999)
+    velocity.MaxForce = forcaMassiva
+    velocity.P = math.huge
+    velocity.Parent = corpo  
+
+    local angularVelocity = Instance.new("BodyAngularVelocity")
+    angularVelocity.Name = "FlingPowerAngular"
+    angularVelocity.AngularVelocity = Vector3.new(999999, 999999, 999999)
+    angularVelocity.MaxTorque = forcaMassiva
+    angularVelocity.P = math.huge
+    angularVelocity.Parent = corpo
+end
+
+-- --- FUNÇÃO PARA EXECUTAR O ATAQUE (SEGURANÇA GARANTIDA) ---
+local function executarAtaqueComSeguranca(alvoPlayer)
+    -- Verificar se o alvo ainda é válido
+    if not alvoPlayer then return end
+    
+    local alvoChar = alvoPlayer.Character
+    if not alvoChar or not alvoChar:FindFirstChild("HumanoidRootPart") then return end
+
+    local alvoHum = alvoChar.Humanoid
+    if not alvoHum or alvoHum.Health <= 0 then return end
+    
+    local meuHRP = character and character:FindFirstChild("HumanoidRootPart")
+    if not meuHRP or #objetosSelecionados == 0 then return end
+
+    -- Verificar se estamos realmente em segurança (posição original)
+    if posicaoOriginal then
+        local distanciaAtual = (meuHRP.Position - posicaoOriginal.Position).Magnitude
+        if distanciaAtual > 5 then
+            -- Ainda não voltou totalmente, esperar mais um pouco
+            task.wait(0.3)
+        end
+    end
+
+    -- Aplicar motores de fling e constraints
+    for _, objeto in pairs(objetosSelecionados) do
+        if objeto and objeto.Parent then
+            aplicarMotoresFling(objeto)
+
+            local nc = Instance.new("NoCollisionConstraint", objeto)
+            nc.Part0 = objeto
+            nc.Part1 = meuHRP
+
+            if sethp then
+                pcall(function() sethp(objeto, "NetworkOwner", lp) end)
+            elseif objeto.SetNetworkOwner then
+                pcall(function() objeto:SetNetworkOwner(lp) end)
+            end
+        end
+    end
+
+    local partesAlvo = {"HumanoidRootPart", "Head", "LowerTorso"}
+    local indexParte = 1
+
+    conexaoAtaque = RunService.Heartbeat:Connect(function()
+        if not alvoChar.Parent or alvoHum.Health <= 0 or #objetosSelecionados == 0 then
+            resetarEstado()
+            return
+        end
+
+        local nomeParte = partesAlvo[indexParte]
+        local p = alvoChar:FindFirstChild(nomeParte)
+
+        if p then
+            local offsetCurto = Vector3.new(0, 0, 0)
+            if p.AssemblyLinearVelocity.Magnitude > 0.1 then
+                offsetCurto = p.AssemblyLinearVelocity.Unit * 0.8
+            end
+
+            local tempo = tick() * 45 
+
+            for i = #objetosSelecionados, 1, -1 do
+                local objeto = objetosSelecionados[i]
+
+                if objeto and objeto.Parent then
+                    local angulo = tempo + (i * (math.pi / #objetosSelecionados))
+                    local raio = 1 + (math.sin(tempo + i) * 0.5 + 0.5) 
+
+                    local offsetOrbital = Vector3.new(
+                        math.cos(angulo) * raio,
+                        math.sin(angulo * 1.5) * raio, 
+                        math.sin(angulo) * raio
+                    )
+
+                    local posicaoFinal = p.Position + offsetCurto + offsetOrbital
+                    local direcaoGiro = CFrame.Angles(math.sin(tempo) * 3, math.cos(tempo) * 3, math.sin(tempo * 2) * 3)
+
+                    objeto.CFrame = CFrame.new(posicaoFinal) * direcaoGiro
+                    objeto.Velocity = Vector3.new(999999, 999999, 999999)
+                    objeto.RotVelocity = Vector3.new(999999, 999999, 999999)
+                else
+                    table.remove(objetosSelecionados, i)
+                    atualizarTexto()
+                end
+            end
+        end
+
+        indexParte = indexParte + 1
+        if indexParte > #partesAlvo then indexParte = 1 end
+    end)
+end
+
+-- --- VARREDURA E COLETA AUTOMÁTICA DE VEÍCULOS ---
+local function escanearEColetar()
+    objetosSelecionados = {}
+    local meuNick = lp.Name
+
+    for _, obj in pairs(Workspace:GetDescendants()) do
+        if obj:IsA("Model") then
+            local isHeli = ehHelicoptero(obj)
+            local temNomeJogador = string.find(obj.Name, meuNick)
+            
+            if temNomeJogador or isHeli then
+                local alvoFisico = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+                if alvoFisico and alvoFisico.Anchored == false then
+                    if not table.find(objetosSelecionados, alvoFisico) then
+                        table.insert(objetosSelecionados, alvoFisico)
+                    end
+                    
+                    if isHeli then
+                        local assento = encontrarAssento(obj)
+                        if assento and assento:IsA("BasePart") then
+                            -- O bypass agora vai chamar a função de ataque depois que voltar
+                            local alvoAtual = alvoSelecionado
+                            executarBypassNetworkOwnership(assento, function()
+                                if alvoAtual then
+                                    executarAtaqueComSeguranca(alvoAtual)
+                                end
+                            end)
+                        end
+                    end
+                end
+            end
+        end
+    end
+    atualizarTexto()
+end
+
+-- --- EXECUÇÃO DO ATAQUE (PONTO DE ENTRADA PRINCIPAL) ---
+local function iniciarAtaqueMassa(alvoPlayer)
+    if not alvoPlayer then return end
+    
+    -- Salvar o alvo para usar depois
+    alvoParaAtacar = alvoPlayer
+    
+    -- Verificar se já temos objetos selecionados
+    if #objetosSelecionados == 0 then
+        -- Se não tiver objetos, escanear primeiro
+        escanearEColetar()
+        task.wait(0.3)
+    end
+    
+    -- Verificar se os objetos selecionados incluem um helicóptero
+    local temHelicoptero = false
+    local assentoHeli = nil
+    local modeloHeli = nil
+    
+    for _, obj in pairs(objetosSelecionados) do
+        if obj and obj.Parent then
+            local model = obj:FindFirstAncestorOfClass("Model") or obj.Parent
+            if ehHelicoptero(model) then
+                temHelicoptero = true
+                modeloHeli = model
+                assentoHeli = encontrarAssento(modeloHeli)
+                break
+            end
+        end
+    end
+    
+    if temHelicoptero and assentoHeli then
+        -- Tem helicóptero, fazer bypass primeiro e depois atacar
+        executarBypassNetworkOwnership(assentoHeli, function()
+            -- Este callback será executado APÓS voltar à posição original
+            if alvoParaAtacar then
+                executarAtaqueComSeguranca(alvoParaAtacar)
+                alvoParaAtacar = nil
+            end
+        end)
+    else
+        -- Não tem helicóptero, atacar diretamente
+        executarAtaqueComSeguranca(alvoPlayer)
+    end
 end
 
 -- --- CRIAÇÃO DO BOTÃO UI DA TOOL ---
@@ -306,12 +514,13 @@ local function resetarEstado()
     end
     posicaoOriginal = nil
     bypassEmExecucao = false
+    aguardandoSeguranca = false
+    alvoParaAtacar = nil
     atualizarTexto()
 end
 
 -- --- ALTERNAR ESTADO DA TOOL E UI ---
 local function alternarModo(ativo)
-    -- Se o personagem não existir, não ativar
     if ativo and not character then
         return
     end
@@ -329,145 +538,6 @@ local function alternarModo(ativo)
     else
         resetarEstado()
     end
-end
-
--- --- MOTORES DE FLING ---
-local function aplicarMotoresFling(corpo)
-    for _, child in pairs(corpo:GetChildren()) do
-        if child:IsA("BodyVelocity") or child:IsA("BodyAngularVelocity") or child.Name == "BobsledSpinMotor" then
-            child:Destroy()
-        end
-    end
-
-    corpo.CanCollide = true
-    corpo.Massless = false
-    corpo.CustomPhysicalProperties = PhysicalProperties.new(100, 100, 0, 100, 100)
-
-    local forcaMassiva = Vector3.new(math.huge * math.huge, math.huge * math.huge, math.huge * math.huge)
-
-    local velocity = Instance.new("BodyVelocity")
-    velocity.Name = "FlingPowerLinear"
-    velocity.Velocity = Vector3.new(999999, 999999, 999999)
-    velocity.MaxForce = forcaMassiva
-    velocity.P = math.huge
-    velocity.Parent = corpo  
-
-    local angularVelocity = Instance.new("BodyAngularVelocity")
-    angularVelocity.Name = "FlingPowerAngular"
-    angularVelocity.AngularVelocity = Vector3.new(999999, 999999, 999999)
-    angularVelocity.MaxTorque = forcaMassiva
-    angularVelocity.P = math.huge
-    angularVelocity.Parent = corpo
-end
-
--- --- VARREDURA E COLETA AUTOMÁTICA DE VEÍCULOS ---
-local function escanearEColetar()
-    objetosSelecionados = {}
-    local meuNick = lp.Name
-
-    for _, obj in pairs(Workspace:GetDescendants()) do
-        if obj:IsA("Model") then
-            local isHeli = ehHelicoptero(obj)
-            local temNomeJogador = string.find(obj.Name, meuNick)
-            
-            -- Seleciona se tem o nome do jogador OU é um helicóptero
-            if temNomeJogador or isHeli then
-                local alvoFisico = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
-                if alvoFisico and alvoFisico.Anchored == false then
-                    if not table.find(objetosSelecionados, alvoFisico) then
-                        table.insert(objetosSelecionados, alvoFisico)
-                    end
-                    
-                    -- BYPASS APENAS SE FOR HELICÓPTERO
-                    if isHeli then
-                        local assento = encontrarAssento(obj)
-                        if assento and assento:IsA("BasePart") then
-                            executarBypassNetworkOwnership(assento)
-                        end
-                    end
-                end
-            end
-        end
-    end
-    atualizarTexto()
-end
-
--- --- EXECUÇÃO DO ATAQUE EM MASSA ---
-local function iniciarAtaqueMassa(alvoPlayer)
-    local alvoChar = alvoPlayer.Character
-    if not alvoChar or not alvoChar:FindFirstChild("HumanoidRootPart") then return end
-
-    local alvoHum = alvoChar.Humanoid
-    local meuHRP = character and character:FindFirstChild("HumanoidRootPart")
-
-    if not meuHRP or #objetosSelecionados == 0 then return end
-
-    -- Aplicar motores de fling e constraints
-    for _, objeto in pairs(objetosSelecionados) do
-        if objeto and objeto.Parent then
-            aplicarMotoresFling(objeto)
-
-            local nc = Instance.new("NoCollisionConstraint", objeto)
-            nc.Part0 = objeto
-            nc.Part1 = meuHRP
-
-            if sethp then
-                pcall(function() sethp(objeto, "NetworkOwner", lp) end)
-            elseif objeto.SetNetworkOwner then
-                pcall(function() objeto:SetNetworkOwner(lp) end)
-            end
-        end
-    end
-
-    local partesAlvo = {"HumanoidRootPart", "Head", "LowerTorso"}
-    local indexParte = 1
-
-    conexaoAtaque = RunService.Heartbeat:Connect(function()
-        if not alvoChar.Parent or alvoHum.Health <= 0 or #objetosSelecionados == 0 then
-            resetarEstado()
-            return
-        end
-
-        local nomeParte = partesAlvo[indexParte]
-        local p = alvoChar:FindFirstChild(nomeParte)
-
-        if p then
-            local offsetCurto = Vector3.new(0, 0, 0)
-            if p.AssemblyLinearVelocity.Magnitude > 0.1 then
-                offsetCurto = p.AssemblyLinearVelocity.Unit * 0.8
-            end
-
-            local tempo = tick() * 45 
-
-            for i = #objetosSelecionados, 1, -1 do
-                local objeto = objetosSelecionados[i]
-
-                if objeto and objeto.Parent then
-                    local angulo = tempo + (i * (math.pi / #objetosSelecionados))
-                    local raio = 1 + (math.sin(tempo + i) * 0.5 + 0.5) 
-
-                    local offsetOrbital = Vector3.new(
-                        math.cos(angulo) * raio,
-                        math.sin(angulo * 1.5) * raio, 
-                        math.sin(angulo) * raio
-                    )
-
-                    local posicaoFinal = p.Position + offsetCurto + offsetOrbital
-                    local direcaoGiro = CFrame.Angles(math.sin(tempo) * 3, math.cos(tempo) * 3, math.sin(tempo * 2) * 3)
-
-                    objeto.CFrame = CFrame.new(posicaoFinal) * direcaoGiro
-                    objeto.Velocity = Vector3.new(999999, 999999, 999999)
-                    objeto.RotVelocity = Vector3.new(999999, 999999, 999999)
-                else
-                    table.remove(objetosSelecionados, i)
-                    atualizarTexto()
-                end
-            end
-        end
-
-        indexParte = indexParte + 1
-        if indexParte > #partesAlvo then indexParte = 1 end
-    end)
 end
 
 -- --- ATUALIZAÇÃO E FILTRO DA LISTA DE JOGADORES ---
@@ -538,9 +608,12 @@ if btnLancar then
     btnLancar.MouseButton1Click:Connect(function()
         if alvoSelecionado then
             btnLancar.Text = "CAPTURING..."
+            -- Escanear e coletar objetos
             escanearEColetar()
             task.wait(0.5)
             btnLancar.Text = "Lançar MATTER"
+            
+            -- Iniciar ataque (agora com segurança)
             iniciarAtaqueMassa(alvoSelecionado)
         end
     end)
@@ -605,16 +678,15 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
                     table.insert(objetosSelecionados, alvoFisico)
                     atualizarTexto()
 
-                    -- VERIFICA SE É HELICÓPTERO ANTES DE FAZER BYPASS
                     local isHelicoptero = ehHelicoptero(modeloVeiculo)
                     
                     if isHelicoptero then
                         local assentoEncontrado = encontrarAssento(modeloVeiculo)
                         if assentoEncontrado and assentoEncontrado:IsA("BasePart") then
-                            executarBypassNetworkOwnership(assentoEncontrado)
+                            -- Só faz o bypass, sem atacar ainda
+                            executarBypassNetworkOwnership(assentoEncontrado, nil)
                         end
                     end
-                    -- SE NÃO FOR HELICÓPTERO, NÃO FAZ NADA (SEM BYPASS)
                 end
             end
         end
