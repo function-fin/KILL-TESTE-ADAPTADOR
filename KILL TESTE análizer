@@ -1,34 +1,23 @@
--- ============================================================
--- PROJETO SELECT MATTER V4 - SISTEMA DE BANCO DE DADOS & UI
--- DESIGN REPRODUZIDO FIELMENTE À IMAGEM REFERÊNCIA
--- ============================================================
-
+-- ============================================
+-- PROJETO KILL V4 - AURA CAPTURADOR (UI ATUALIZADA)
+-- ============================================
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local CoreGui = game:GetService("CoreGui")
-
 local lp = Players.LocalPlayer
 local character = lp.Character or lp.CharacterAdded:Wait()
 local camera = Workspace.CurrentCamera
 
-lp.CharacterAdded:Connect(function(newChar)
-    character = newChar
-end)
+lp.CharacterAdded:Connect(function(newChar) character = newChar end)
 
--- --- VARIÁVEIS DE ESTADO E BANCO DE DADOS ---
+-- --- VARIÁVEIS DE ESTADO ---
 local modoAtivo = false
-local lancarAtivo = false
-local loopKillAtivo = false
-
-local veiculosSalvos = {} -- BANCO DE DADOS DE VEÍCULOS (Method I, Method II, ...)
-local metodoSelecionadoIndex = nil
-local jogadorAlvoSelecionado = nil
+local objetosSelecionados = {}
+local alvoSelecionado = nil
 local conexaoAtaque = nil
 
--- --- TRANCAR AUTORIDADE DE REDE (SIMULATION RADIUS MÁXIMO) ---
+-- --- FUNÇÕES DE APOIO (FLING E BYPASS) ---
 local sethp = sethiddenproperty or set_hidden_property
 if sethp then
     task.spawn(function()
@@ -41,622 +30,132 @@ if sethp then
     end)
 end
 
--- ============================================================
--- CONSTRUÇÃO DA INTERFACE GRÁFICA (EXATA À IMAGEM)
--- ============================================================
-
-local guiParent = pcall(function() return CoreGui.Name end) and CoreGui or lp:WaitForChild("PlayerGui")
-
-if guiParent:FindFirstChild("SelectMatterV4Gui") then
-    guiParent.SelectMatterV4Gui:Destroy()
-end
-
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "SelectMatterV4Gui"
-screenGui.ResetOnSpawn = false
-screenGui.Parent = guiParent
-
--- PAINEL PRINCIPAL PRETO COM BORDA BRANCA
-local mainFrame = Instance.new("Frame")
-mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 460, 0, 260)
-mainFrame.Position = UDim2.new(0.5, -230, 0.5, -130)
-mainFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-mainFrame.BorderSizePixel = 0
-mainFrame.Visible = false
-mainFrame.Active = true
-mainFrame.Draggable = true
-mainFrame.Parent = screenGui
-
-local mainCorner = Instance.new("UICorner")
-mainCorner.CornerRadius = UDim.new(0, 3)
-mainCorner.Parent = mainFrame
-
-local mainStroke = Instance.new("UIStroke")
-mainStroke.Color = Color3.fromRGB(255, 255, 255)
-mainStroke.Thickness = 2.5
-mainStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-mainStroke.Parent = mainFrame
-
--- --------------------------------------------
--- LADO ESQUERDO: QUADRO DE SELEÇÃO DE JOGADORES
--- --------------------------------------------
-local leftBox = Instance.new("Frame")
-leftBox.Name = "LeftBox"
-leftBox.Size = UDim2.new(0.47, 0, 0.92, 0)
-leftBox.Position = UDim2.new(0.02, 0, 0.04, 0)
-leftBox.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-leftBox.BorderSizePixel = 0
-leftBox.Parent = mainFrame
-
-local leftBoxStroke = Instance.new("UIStroke")
-leftBoxStroke.Color = Color3.fromRGB(255, 255, 255)
-leftBoxStroke.Thickness = 2
-leftBoxStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-leftBoxStroke.Parent = leftBox
-
--- Campo de Pesquisa ("Find a player...")
-local searchBox = Instance.new("TextBox")
-searchBox.Name = "SearchBox"
-searchBox.Size = UDim2.new(0.94, 0, 0, 26)
-searchBox.Position = UDim2.new(0.03, 0, 0.03, 0)
-searchBox.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-searchBox.BorderColor3 = Color3.fromRGB(255, 255, 255)
-searchBox.BorderSizePixel = 1
-searchBox.PlaceholderText = "Find a player..."
-searchBox.PlaceholderColor3 = Color3.fromRGB(200, 200, 200)
-searchBox.Text = ""
-searchBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-searchBox.Font = Enum.Font.Arcade
-searchBox.TextSize = 15
-searchBox.TextXAlignment = Enum.TextXAlignment.Left
-searchBox.Parent = leftBox
-
-local searchPadding = Instance.new("UIPadding")
-searchPadding.PaddingLeft = UDim.new(0, 6)
-searchPadding.Parent = searchBox
-
--- Botões Superiores Esquerdos
-local btnLoopKill = Instance.new("TextButton")
-btnLoopKill.Name = "BtnLoopKill"
-btnLoopKill.Size = UDim2.new(0.45, 0, 0, 28)
-btnLoopKill.Position = UDim2.new(0.03, 0, 0.16, 0)
-btnLoopKill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-btnLoopKill.BorderSizePixel = 0
-btnLoopKill.Text = "LOOP\nKILL ON"
-btnLoopKill.TextColor3 = Color3.fromRGB(0, 0, 0)
-btnLoopKill.Font = Enum.Font.SourceSansBold
-btnLoopKill.TextSize = 10
-btnLoopKill.Parent = leftBox
-
-local btnKillAllOff = Instance.new("TextButton")
-btnKillAllOff.Name = "BtnKillAllOff"
-btnKillAllOff.Size = UDim2.new(0.45, 0, 0, 28)
-btnKillAllOff.Position = UDim2.new(0.52, 0, 0.16, 0)
-btnKillAllOff.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-btnKillAllOff.BorderSizePixel = 0
-btnKillAllOff.Text = "KILL ALL\nLOOP OFF"
-btnKillAllOff.TextColor3 = Color3.fromRGB(0, 0, 0)
-btnKillAllOff.Font = Enum.Font.SourceSansBold
-btnKillAllOff.TextSize = 10
-btnKillAllOff.Parent = leftBox
-
--- Lista Rolável de Jogadores
-local playerScroll = Instance.new("ScrollingFrame")
-playerScroll.Name = "PlayerScroll"
-playerScroll.Size = UDim2.new(0.94, 0, 0.68, 0)
-playerScroll.Position = UDim2.new(0.03, 0, 0.30, 0)
-playerScroll.BackgroundTransparency = 1
-playerScroll.BorderSizePixel = 0
-playerScroll.ScrollBarThickness = 3
-playerScroll.ScrollBarImageColor3 = Color3.fromRGB(255, 255, 255)
-playerScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-playerScroll.Parent = leftBox
-
-local scrollLayout = Instance.new("UIListLayout")
-scrollLayout.SortOrder = Enum.SortOrder.Name
-scrollLayout.Padding = UDim.new(0, 4)
-scrollLayout.Parent = playerScroll
-
--- --------------------------------------------
--- LADO DIREITO: BANCO DE DADOS DE MÉTODOS E LANÇAR
--- --------------------------------------------
-local rightFrame = Instance.new("Frame")
-rightFrame.Name = "RightFrame"
-rightFrame.Size = UDim2.new(0.47, 0, 0.92, 0)
-rightFrame.Position = UDim2.new(0.51, 0, 0.04, 0)
-rightFrame.BackgroundTransparency = 1
-rightFrame.Parent = mainFrame
-
--- Título Direita
-local titleRight = Instance.new("TextLabel")
-titleRight.Name = "TitleRight"
-titleRight.Size = UDim2.new(1, 0, 0, 26)
-titleRight.Position = UDim2.new(0, 0, 0, 0)
-titleRight.BackgroundTransparency = 1
-titleRight.Text = "KILL CAUSE THE SPWAN"
-titleRight.TextColor3 = Color3.fromRGB(255, 255, 255)
-titleRight.Font = Enum.Font.Arcade
-titleRight.TextSize = 17
-titleRight.TextXAlignment = Enum.TextXAlignment.Center
-titleRight.Parent = rightFrame
-
--- Lista Rolável de Métodos Salvos
-local methodScroll = Instance.new("ScrollingFrame")
-methodScroll.Name = "MethodScroll"
-methodScroll.Size = UDim2.new(0.95, 0, 0.60, 0)
-methodScroll.Position = UDim2.new(0.05, 0, 0.16, 0)
-methodScroll.BackgroundTransparency = 1
-methodScroll.BorderSizePixel = 0
-methodScroll.ScrollBarThickness = 3
-methodScroll.ScrollBarImageColor3 = Color3.fromRGB(255, 255, 255)
-methodScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-methodScroll.Parent = rightFrame
-
-local methodLayout = Instance.new("UIListLayout")
-methodLayout.SortOrder = Enum.SortOrder.LayoutOrder
-methodLayout.Padding = UDim.new(0, 6)
-methodLayout.Parent = methodScroll
-
--- Botão LANÇAR ON / OFF
-local btnLancar = Instance.new("TextButton")
-btnLancar.Name = "BtnLancar"
-btnLancar.Size = UDim2.new(0.75, 0, 0, 30)
-btnLancar.Position = UDim2.new(0.2, 0, 0.84, 0)
-btnLancar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-btnLancar.BorderColor3 = Color3.fromRGB(255, 255, 255)
-btnLancar.BorderSizePixel = 2
-btnLancar.Text = "LANÇAR OFF"
-btnLancar.TextColor3 = Color3.fromRGB(255, 255, 255)
-btnLancar.Font = Enum.Font.Arcade
-btnLancar.TextSize = 15
-btnLancar.Parent = rightFrame
-
--- --------------------------------------------
--- BOTÃO FLUTUANTE DA TOOL (SELECT MATTER V4)
--- --------------------------------------------
-local actionButton = Instance.new("TextButton")
-actionButton.Name = "SelectMatterV4Button"
-actionButton.Size = UDim2.new(0, 70, 0, 70)
-actionButton.Position = UDim2.new(0.5, -35, 0.82, 0)
-actionButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-actionButton.BorderSizePixel = 0
-actionButton.Text = "SELECT\nMATTER\nV4"
-actionButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-actionButton.Font = Enum.Font.Arcade
-actionButton.TextScaled = true
-actionButton.TextWrapped = true
-actionButton.Parent = screenGui
-
-local uiPadding = Instance.new("UIPadding")
-uiPadding.PaddingTop = UDim.new(0.08, 0)
-uiPadding.PaddingBottom = UDim.new(0.08, 0)
-uiPadding.PaddingLeft = UDim.new(0.08, 0)
-uiPadding.PaddingRight = UDim.new(0.08, 0)
-uiPadding.Parent = actionButton
-
-local uiStroke = Instance.new("UIStroke")
-uiStroke.Color = Color3.fromRGB(255, 255, 255)
-uiStroke.Thickness = 3
-uiStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-uiStroke.Parent = actionButton
-
-local uiCorner = Instance.new("UICorner")
-uiCorner.CornerRadius = UDim.new(0, 2)
-uiCorner.Parent = actionButton
-
--- ============================================================
--- LÓGICA DE GERENCIAMENTO DE MÉTODOS E INTERFACE
--- ============================================================
-
-local function atualizarTextoBotao()
-    if metodoSelecionadoIndex and veiculosSalvos[metodoSelecionadoIndex] then
-        local qtdPartes = #veiculosSalvos[metodoSelecionadoIndex].Partes
-        actionButton.Text = "READY\n(" .. qtdPartes .. " Pts)"
-    else
-        actionButton.Text = "SELECT\nMATTER\nV4"
-    end
-end
-
-local function resetarEstado()
-    if conexaoAtaque then
-        conexaoAtaque:Disconnect()
-        conexaoAtaque = nil
-    end
-    modoAtivo = false
-    lancarAtivo = false
-    loopKillAtivo = false
-    jogadorAlvoSelecionado = nil
-    actionButton.BackgroundTransparency = 0
-    actionButton.TextTransparency = 0
-    btnLoopKill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    btnLoopKill.TextColor3 = Color3.fromRGB(0, 0, 0)
-    btnLancar.Text = "LANÇAR OFF"
-    btnLancar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    btnLancar.TextColor3 = Color3.fromRGB(255, 255, 255)
-    mainFrame.Visible = false
-    atualizarTextoBotao()
-end
-
--- Renderizar lista de métodos dinamicos salvos
-local function criarBotoesMetodos()
-    for _, child in pairs(methodScroll:GetChildren()) do
-        if child:IsA("TextButton") then
-            child:Destroy()
-        end
-    end
-
-    local alturaTotal = 0
-    for index, dadosVeiculo in ipairs(veiculosSalvos) do
-        local mBtn = Instance.new("TextButton")
-        mBtn.Name = dadosVeiculo.Nome
-        mBtn.Size = UDim2.new(1, 0, 0, 26)
-        mBtn.BackgroundTransparency = 1
-        mBtn.BorderSizePixel = 0
-        mBtn.Text = dadosVeiculo.Nome
-        mBtn.TextColor3 = (metodoSelecionadoIndex == index) and Color3.fromRGB(255, 220, 0) or Color3.fromRGB(255, 255, 255)
-        mBtn.Font = Enum.Font.Arcade
-        mBtn.TextSize = 22
-        mBtn.TextXAlignment = Enum.TextXAlignment.Left
-        mBtn.Parent = methodScroll
-
-        mBtn.MouseButton1Click:Connect(function()
-            metodoSelecionadoIndex = index
-            criarBotoesMetodos()
-            atualizarTextoBotao()
-        end)
-
-        alturaTotal = alturaTotal + 32
-    end
-    methodScroll.CanvasSize = UDim2.new(0, 0, 0, alturaTotal)
-end
-
--- Renderizar lista de jogadores
-local function atualizarListaJogadores()
-    for _, child in pairs(playerScroll:GetChildren()) do
-        if child:IsA("TextButton") then
-            child:Destroy()
-        end
-    end
-
-    local filtro = searchBox.Text:lower()
-    local alturaTotal = 0
-
-    for _, plr in pairs(Players:GetPlayers()) do
-        if plr ~= lp then
-            local nome = plr.Name
-            local displayName = plr.DisplayName
-
-            if filtro == "" or nome:lower():find(filtro) or displayName:lower():find(filtro) then
-                local pBtn = Instance.new("TextButton")
-                pBtn.Name = nome
-                pBtn.Size = UDim2.new(1, 0, 0, 22)
-                pBtn.BackgroundTransparency = 1
-                pBtn.BorderSizePixel = 0
-                pBtn.Text = displayName
-                pBtn.TextColor3 = (jogadorAlvoSelecionado == plr) and Color3.fromRGB(255, 220, 0) or Color3.fromRGB(255, 255, 255)
-                pBtn.Font = Enum.Font.Arcade
-                pBtn.TextSize = 18
-                pBtn.TextXAlignment = Enum.TextXAlignment.Left
-                pBtn.Parent = playerScroll
-
-                pBtn.MouseButton1Click:Connect(function()
-                    jogadorAlvoSelecionado = plr
-                    atualizarListaJogadores()
-                end)
-
-                alturaTotal = alturaTotal + 26
-            end
-        end
-    end
-
-    playerScroll.CanvasSize = UDim2.new(0, 0, 0, alturaTotal)
-end
-
--- ============================================================
--- MOTORES DE FLING E BYPASS DE REDE
--- ============================================================
-
 local function aplicarMotoresFling(corpo)
     for _, child in pairs(corpo:GetChildren()) do
         if child:IsA("BodyVelocity") or child:IsA("BodyAngularVelocity") or child.Name == "BobsledSpinMotor" then
             child:Destroy()
         end
     end
-
     corpo.CanCollide = true
-    corpo.Massless = false
     corpo.CustomPhysicalProperties = PhysicalProperties.new(100, 100, 0, 100, 100)
-
-    local forcaMassiva = Vector3.new(math.huge * math.huge, math.huge * math.huge, math.huge * math.huge)
-
-    local velocity = Instance.new("BodyVelocity")
-    velocity.Name = "FlingPowerLinear"
-    velocity.Velocity = Vector3.new(999999, 999999, 999999)
-    velocity.MaxForce = forcaMassiva
-    velocity.P = math.huge
-    velocity.Parent = corpo  
-
-    local angularVelocity = Instance.new("BodyAngularVelocity")
-    angularVelocity.Name = "FlingPowerAngular"
-    angularVelocity.AngularVelocity = Vector3.new(999999, 999999, 999999)
-    angularVelocity.MaxTorque = forcaMassiva
-    angularVelocity.P = math.huge
-    angularVelocity.Parent = corpo
+    local forcaMassiva = Vector3.new(math.huge, math.huge, math.huge)
+    local velocity = Instance.new("BodyVelocity", corpo); velocity.Name = "FlingPowerLinear"; velocity.Velocity = Vector3.new(999999, 999999, 999999); velocity.MaxForce = forcaMassiva
+    local angularVelocity = Instance.new("BodyAngularVelocity", corpo); angularVelocity.Name = "FlingPowerAngular"; angularVelocity.AngularVelocity = Vector3.new(999999, 999999, 999999); angularVelocity.MaxTorque = forcaMassiva
 end
 
 local function executarBypassNetworkOwnership(assentoAlvo)
     local meuHRP = character and character:FindFirstChild("HumanoidRootPart")
     local meuHum = character and character:FindFirstChildOfClass("Humanoid")
     if not meuHRP or not meuHum or not assentoAlvo then return end
-
-    local posicaoOriginal = meuHRP.CFrame
-
+    local posOrig = meuHRP.CFrame
     meuHRP.CFrame = assentoAlvo.CFrame
-    task.wait(0.4) 
-
-    meuHum.Sit = false
-    meuHum.Jump = true
-    meuHRP.CFrame = assentoAlvo.CFrame + Vector3.new(0, 8, 0) 
-
-    task.wait(0.2) 
-
-    meuHRP.CFrame = posicaoOriginal
+    task.wait(0.4)
+    meuHum.Sit = false; meuHum.Jump = true
+    meuHRP.CFrame = assentoAlvo.CFrame + Vector3.new(0, 5, 0)
+    task.wait(0.2)
+    meuHRP.CFrame = posOrig
 end
 
--- Executar Ataque com Método Salvo
-local function iniciarAtaqueMassa(alvoPlayer)
-    if not alvoPlayer or not metodoSelecionadoIndex or not veiculosSalvos[metodoSelecionadoIndex] then return end
-
-    local alvoChar = alvoPlayer.Character
-    if not alvoChar or not alvoChar:FindFirstChild("HumanoidRootPart") then return end
-
-    local alvoHum = alvoChar:FindFirstChildOfClass("Humanoid")
-    local meuHRP = character and character:FindFirstChild("HumanoidRootPart")
-    local partesVeiculo = veiculosSalvos[metodoSelecionadoIndex].Partes
-
-    if not meuHRP or #partesVeiculo == 0 then return end
-
-    for _, objeto in pairs(partesVeiculo) do
-        if objeto and objeto.Parent then
-            aplicarMotoresFling(objeto)
-
-            local nc = Instance.new("NoCollisionConstraint", objeto)
-            nc.Part0 = objeto
-            nc.Part1 = meuHRP
-
-            if sethp then
-                pcall(function() sethp(objeto, "NetworkOwner", lp) end)
-            elseif objeto.SetNetworkOwner then
-                pcall(function() objeto:SetNetworkOwner(lp) end)
-            end
-        end
-    end
-
-    local partesAlvo = {"HumanoidRootPart", "Head", "LowerTorso"}
-    local indexParte = 1
-
-    if conexaoAtaque then conexaoAtaque:Disconnect() end
-
-    conexaoAtaque = RunService.Heartbeat:Connect(function()
-        if not alvoChar.Parent or (alvoHum and alvoHum.Health <= 0) or #partesVeiculo == 0 then
-            if not loopKillAtivo then
-                resetarEstado()
-            end
-            return
-        end
-
-        local nomeParte = partesAlvo[indexParte]
-        local p = alvoChar:FindFirstChild(nomeParte)
-
-        if p then
-            local offsetCurto = Vector3.new(0, 0, 0)
-            if p.AssemblyLinearVelocity.Magnitude > 0.1 then
-                offsetCurto = p.AssemblyLinearVelocity.Unit * 0.8
-            end
-
-            local tempo = tick() * 45 
-
-            for i = #partesVeiculo, 1, -1 do
-                local objeto = partesVeiculo[i]
-
-                if objeto and objeto.Parent then
-                    local angulo = tempo + (i * (math.pi / #partesVeiculo))
-                    local raio = 1 + (math.sin(tempo + i) * 0.5 + 0.5) 
-
-                    local offsetOrbital = Vector3.new(
-                        math.cos(angulo) * raio,
-                        math.sin(angulo * 1.5) * raio, 
-                        math.sin(angulo) * raio
-                    )
-
-                    local posicaoFinal = p.Position + offsetCurto + offsetOrbital
-                    local direcaoGiro = CFrame.Angles(math.sin(tempo) * 3, math.cos(tempo) * 3, math.sin(tempo * 2) * 3)
-
-                    objeto.CFrame = CFrame.new(posicaoFinal) * direcaoGiro
-                    objeto.Velocity = Vector3.new(999999, 999999, 999999)
-                    objeto.RotVelocity = Vector3.new(999999, 999999, 999999)
-                else
-                    table.remove(partesVeiculo, i)
+-- --- LÓGICA DE SCANNER (COLETA DE VEÍCULOS) ---
+local function escanearVeiculos()
+    objetosSelecionados = {}
+    local meuNick = lp.Name
+    
+    -- Varre o workspace procurando modelos com seu nome
+    for _, model in pairs(Workspace:GetDescendants()) do
+        if model:IsA("Model") and string.find(model.Name, meuNick) then
+            local p = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")
+            if p then
+                table.insert(objetosSelecionados, p)
+                
+                -- Detectar Assento e realizar Bypass
+                local assento = model:FindFirstChild("PilotSeat", true) or model:FindFirstChildOfClass("VehicleSeat") or model:FindFirstChild("Seats", true):FindFirstChildOfClass("VehicleSeat")
+                if assento then
+                    executarBypassNetworkOwnership(assento)
                 end
             end
         end
+    end
+end
 
-        indexParte = indexParte + 1
-        if indexParte > #partesAlvo then indexParte = 1 end
+-- --- EXECUÇÃO DO ATAQUE ---
+local function iniciarAtaqueMassa(alvoPlayer)
+    local alvoChar = alvoPlayer.Character
+    if not alvoChar or not alvoChar:FindFirstChild("HumanoidRootPart") or #objetosSelecionados == 0 then return end
+    
+    for _, objeto in pairs(objetosSelecionados) do
+        if objeto and objeto.Parent then
+            aplicarMotoresFling(objeto)
+            if sethp then pcall(function() sethp(objeto, "NetworkOwner", lp) end) end
+        end
+    end
+
+    conexaoAtaque = RunService.Heartbeat:Connect(function()
+        if not alvoChar.Parent or not alvoChar:FindFirstChild("HumanoidRootPart") then
+            if conexaoAtaque then conexaoAtaque:Disconnect() end
+            return
+        end
+        local p = alvoChar.HumanoidRootPart
+        local tempo = tick() * 45
+        for i, objeto in pairs(objetosSelecionados) do
+            local angulo = tempo + (i * (math.pi / #objetosSelecionados))
+            local raio = 3
+            local pos = p.Position + Vector3.new(math.cos(angulo)*raio, math.sin(tempo)*2, math.sin(angulo)*raio)
+            objeto.CFrame = CFrame.new(pos)
+        end
     end)
 end
 
--- ============================================================
--- SISTEMA DE DETECÇÃO E SALVAMENTO DE VEÍCULOS (BANCO DE DADOS)
--- ============================================================
+-- --- UI COMPLETA (SCREEN GUI) ---
+local gui = Instance.new("ScreenGui", lp.PlayerGui)
+gui.Name = "AuraCapturadorUI"
+gui.Enabled = false
 
-local function numerosRomanos(num)
-    local mapas = { "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X" }
-    return mapas[num] or tostring(num)
-end
+local frame = Instance.new("Frame", gui)
+frame.Size = UDim2.new(0, 250, 0, 350)
+frame.Position = UDim2.new(0.5, -125, 0.5, -175)
+frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+frame.Active = true; frame.Draggable = true
 
-local function capturarEAdicionarVeiculo(modeloVeiculo, parteClicada)
-    if not modeloVeiculo then return end
+local title = Instance.new("TextLabel", frame); title.Size = UDim2.new(1, 0, 0, 40); title.Text = "Aura Capturador"; title.TextColor3 = Color3.new(1,1,1); title.BackgroundTransparency = 1
+local searchBar = Instance.new("TextBox", frame); searchBar.Size = UDim2.new(0.9, 0, 0, 30); searchBar.Position = UDim2.new(0.05, 0, 0.15, 0); searchBar.PlaceholderText = "Find a player..."; searchBar.BackgroundColor3 = Color3.new(0,0,0); searchBar.TextColor3 = Color3.new(1,1,1)
+local list = Instance.new("ScrollingFrame", frame); list.Size = UDim2.new(0.9, 0, 0, 200); list.Position = UDim2.new(0.05, 0, 0.25, 0); list.CanvasSize = UDim2.new(0, 0, 2, 0)
+local btnLancar = Instance.new("TextButton", frame); btnLancar.Size = UDim2.new(0.9, 0, 0, 40); btnLancar.Position = UDim2.new(0.05, 0, 0.85, 0); btnLancar.Text = "Lançar MATTER"; btnLancar.BackgroundColor3 = Color3.new(0,0,0); btnLancar.TextColor3 = Color3.new(1,1,1)
 
-    local partesFisicas = {}
-    for _, desc in pairs(modeloVeiculo:GetDescendants()) do
-        if desc:IsA("BasePart") and not desc.Anchored then
-            table.insert(partesFisicas, desc)
+-- Atualizar lista de jogadores
+local function atualizarLista()
+    list:ClearAllChildren()
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= lp then
+            local btn = Instance.new("TextButton", list)
+            btn.Size = UDim2.new(1, -10, 0, 30); btn.Text = player.Name; btn.BackgroundColor3 = Color3.fromRGB(50,50,50)
+            btn.MouseButton1Click:Connect(function()
+                alvoSelecionado = player
+                for _, child in pairs(list:GetChildren()) do child.BackgroundColor3 = Color3.fromRGB(50,50,50) end
+                btn.BackgroundColor3 = Color3.fromRGB(100, 0, 0) -- Destaque
+            end)
         end
-    end
-
-    if #partesFisicas == 0 and parteClicada and not parteClicada.Anchored then
-        table.insert(partesFisicas, parteClicada)
-    end
-
-    if #partesFisicas > 0 then
-        -- Seat-hopping automático para Network Ownership
-        local assentoEncontrado = modeloVeiculo:FindFirstChildOfClass("VehicleSeat") or modeloVeiculo:FindFirstChild("PilotSeat", true)
-        if assentoEncontrado and assentoEncontrado:IsA("BasePart") then
-            executarBypassNetworkOwnership(assentoEncontrado)
-        end
-
-        local novoIndice = #veiculosSalvos + 1
-        local nomeMetodo = "Method " .. numerosRomanos(novoIndice)
-
-        table.insert(veiculosSalvos, {
-            Nome = nomeMetodo,
-            Modelo = modeloVeiculo,
-            Partes = partesFisicas
-        })
-
-        metodoSelecionadoIndex = novoIndice
-        criarBotoesMetodos()
-        atualizarTextoBotao()
     end
 end
+Players.PlayerAdded:Connect(atualizarLista); Players.PlayerRemoving:Connect(atualizarLista); atualizarLista()
 
--- ============================================================
--- EVENTOS DE CLIQUE E INTERAÇÃO
--- ============================================================
-
--- Captura de Cliques no Mundo (Adicionar ao Banco de Dados ou Atacar)
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed or not modoAtivo then return end
-
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        local pos = input.Position
-        local unitRay = camera:ScreenPointToRay(pos.X, pos.Y)
-
-        local raycastParams = RaycastParams.new()
-        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-        raycastParams.FilterDescendantsInstances = {character}
-
-        local raycastResult = Workspace:Raycast(unitRay.Origin, unitRay.Direction * 50000, raycastParams)
-
-        if raycastResult and raycastResult.Instance then
-            local hitPart = raycastResult.Instance
-            local model = hitPart:FindFirstAncestorOfClass("Model")
-
-            -- CASO 1: Clicou em um Jogador Inimigo no Mundo
-            if model and model:FindFirstChild("Humanoid") then
-                local tPlayer = Players:GetPlayerFromCharacter(model)
-                if tPlayer and tPlayer ~= lp then
-                    jogadorAlvoSelecionado = tPlayer
-                    atualizarListaJogadores()
-
-                    if lancarAtivo then
-                        iniciarAtaqueMassa(jogadorAlvoSelecionado)
-                    end
-                end
-
-            -- CASO 2: Clicou em um Veículo (Adicionar ao Banco de Dados "Method X")
-            else
-                local modeloVeiculo = hitPart:FindFirstAncestorOfClass("Model") or hitPart
-                capturarEAdicionarVeiculo(modeloVeiculo, hitPart)
-            end
-        end
-    end
-end)
-
--- Botão LANÇAR
+-- Botão Ação
 btnLancar.MouseButton1Click:Connect(function()
-    lancarAtivo = not lancarAtivo
-    if lancarAtivo then
-        btnLancar.Text = "LANÇAR ON"
-        btnLancar.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-        btnLancar.TextColor3 = Color3.fromRGB(0, 0, 0)
-        
-        if jogadorAlvoSelecionado and metodoSelecionadoIndex then
-            iniciarAtaqueMassa(jogadorAlvoSelecionado)
-        end
-    else
-        btnLancar.Text = "LANÇAR OFF"
-        btnLancar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-        btnLancar.TextColor3 = Color3.fromRGB(255, 255, 255)
-        if conexaoAtaque then conexaoAtaque:Disconnect() end
+    if alvoSelecionado then
+        btnLancar.Text = "CAPTURANDO..."
+        escanearVeiculos()
+        task.wait(1)
+        btnLancar.Text = "Lançar MATTER"
+        iniciarAtaqueMassa(alvoSelecionado)
     end
 end)
 
--- Botão LOOP KILL
-btnLoopKill.MouseButton1Click:Connect(function()
-    loopKillAtivo = not loopKillAtivo
-    if loopKillAtivo then
-        btnLoopKill.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
-        btnLoopKill.TextColor3 = Color3.fromRGB(255, 255, 255)
-        if jogadorAlvoSelecionado and metodoSelecionadoIndex then
-            iniciarAtaqueMassa(jogadorAlvoSelecionado)
-        end
-    else
-        btnLoopKill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-        btnLoopKill.TextColor3 = Color3.fromRGB(0, 0, 0)
-    end
-end)
-
--- Botão RESET / KILL ALL OFF
-btnKillAllOff.MouseButton1Click:Connect(function()
-    resetarEstado()
-end)
-
-searchBox:GetPropertyChangedSignal("Text"):Connect(atualizarListaJogadores)
-Players.PlayerAdded:Connect(atualizarListaJogadores)
-Players.PlayerRemoving:Connect(atualizarListaJogadores)
-
--- Alternar Botão da Tool UI
-actionButton.MouseButton1Click:Connect(function()
-    if modoAtivo then
-        resetarEstado()
-    else
-        modoAtivo = true
-        actionButton.BackgroundTransparency = 0.45
-        actionButton.TextTransparency = 0.2
-        mainFrame.Visible = true
-        atualizarListaJogadores()
-        criarBotoesMetodos()
-    end
-end)
-
--- ============================================================
--- ADAPTADOR DO PROJECT BACKPACK
--- ============================================================
-
+-- --- REGISTRO NO ADAPTADOR ---
 _G.ScriptAdapter = _G.ScriptAdapter or {}
 _G.ScriptAdapter.Queue = _G.ScriptAdapter.Queue or {}
-
 local toolData = {
     Id = "SelectMatterV4_Tool",
-    ButtonUI = actionButton,
-    MainPanel = mainFrame,
-    OnEquip = function()
-        modoAtivo = true
-        actionButton.BackgroundTransparency = 0.45
-        mainFrame.Visible = true
-        atualizarListaJogadores()
-        criarBotoesMetodos()
-    end,
-    OnUnequip = function()
-        resetarEstado()
-    end
+    OnEquip = function() gui.Enabled = true end,
+    OnUnequip = function() gui.Enabled = false end
 }
-
-if _G.ScriptAdapter and _G.ScriptAdapter.RegisterTool then
-    _G.ScriptAdapter:RegisterTool(toolData)
-else
-    table.insert(_G.ScriptAdapter.Queue, toolData)
-end
+if _G.ScriptAdapter.RegisterTool then _G.ScriptAdapter:RegisterTool(toolData) else table.insert(_G.ScriptAdapter.Queue, toolData) end
