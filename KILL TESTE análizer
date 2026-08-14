@@ -1,5 +1,5 @@
 -- ============================================
--- PROJETO KILL V4 - MULTI-SELECTION (AURA CAPTURADOR V4) - CORRIGIDO
+-- PROJETO KILL V4 - MULTI-SELECTION (AURA CAPTURADOR V4) - CORRIGIDO FINAL
 -- ============================================
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -20,7 +20,8 @@ local modoAtivo = false
 local objetosSelecionados = {}
 local conexaoAtaque = nil
 local alvoSelecionado = nil
-local posicaoOriginal = nil -- Salvar posição original do jogador
+local posicaoOriginal = nil
+local resetando = false
 
 -- --- TRANCAR AUTORIDADE DE REDE (SIMULATION RADIUS MÁXIMO) ---
 local sethp = sethiddenproperty or set_hidden_property
@@ -35,37 +36,35 @@ if sethp then
     end)
 end
 
--- --- VERIFICAÇÃO ESPECÍFICA DE HELICÓPTEROS (CORRIGIDO) ---
+-- --- VERIFICAÇÃO ESPECÍFICA DE HELICÓPTEROS (MANTIDO DO SCRIPT BASE) ---
 local function ehHelicoptero(instancia)
     if not instancia then return false end
     
-    -- Verifica se é um modelo
+    -- Verifica se está dentro da pasta Helicopters
+    if instancia:FindFirstAncestor("Helicopters") then
+        return true
+    end
+    
+    -- Verifica se é um modelo específico
     local model = instancia:IsA("Model") and instancia or instancia:FindFirstAncestorOfClass("Model")
     if not model then return false end
     
     local nome = string.lower(model.Name)
     
-    -- Lista de nomes de helicópteros comuns no Project Backpack
-    local heliNomes = {
-        "chinook", "heli", "copter", "helicopter", "chopper",
-        "uh-60", "uh60", "ah-64", "ah64", "apache", "blackhawk",
-        "bell", "robinson", "ec-145", "ec145", "h145", "md-500",
-        "md500", "bo-105", "bo105", "enstrom", "sikorsky", "eurocopter",
-        "airbus", "agusta", "westland", "mi-24", "mi24", "hind"
-    }
-    
-    -- Verifica se o nome contém algum dos padrões
-    for _, padrao in pairs(heliNomes) do
-        if string.find(nome, padrao) then
-            return true
-        end
+    -- Lista de nomes de helicópteros do Project Backpack
+    if string.find(nome, "chinook") or 
+       string.find(nome, "uh-60") or 
+       string.find(nome, "heli") or 
+       string.find(nome, "copter") or
+       string.find(nome, "apache") or
+       string.find(nome, "blackhawk") then
+        return true
     end
     
     -- Verifica se tem partes típicas de helicóptero
-    if model:FindFirstChild("Rotor") or 
-       model:FindFirstChild("MainRotor") or 
+    if model:FindFirstChild("MainRotor") or 
        model:FindFirstChild("TailRotor") or
-       model:FindFirstChild("RotorHead") or
+       model:FindFirstChild("Rotor") or
        model:FindFirstChild("Blades") then
         return true
     end
@@ -178,29 +177,47 @@ local function atualizarTexto()
     end
 end
 
--- --- RESETAR ESTADO E OCULTAR UI ---
+-- --- RESETAR ESTADO E OCULTAR UI (CORRIGIDO) ---
 local function resetarEstado()
+    if resetando then return end
+    resetando = true
+    
     if conexaoAtaque then
         conexaoAtaque:Disconnect()
         conexaoAtaque = nil
     end
+    
     objetosSelecionados = {}
     modoAtivo = false
+    alvoSelecionado = nil
+    posicaoOriginal = nil
+    
     gui.Enabled = false
     actionButton.BackgroundTransparency = 0
     actionButton.TextTransparency = 0
-    posicaoOriginal = nil
+    
     atualizarTexto()
+    
+    -- Resetar destaque dos botões na lista
+    for _, child in pairs(scrollList:GetChildren()) do
+        if child:IsA("TextButton") then
+            child.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        end
+    end
+    
+    task.wait(0.1)
+    resetando = false
 end
 
 -- --- ALTERNAR ESTADO DA TOOL E UI ---
 local function alternarModo(ativo)
-    modoAtivo = ativo
-    gui.Enabled = ativo
-    if ativo then
+    if ativo and not modoAtivo then
+        modoAtivo = true
+        gui.Enabled = true
         actionButton.BackgroundTransparency = 0.45
         actionButton.TextTransparency = 0.2
-    else
+        atualizarLista()
+    elseif not ativo and modoAtivo then
         resetarEstado()
     end
 end
@@ -234,39 +251,41 @@ local function aplicarMotoresFling(corpo)
     angularVelocity.Parent = corpo
 end
 
--- --- BYPASS NETWORK OWNERSHIP CORRIGIDO (SEAT-HOPPING) ---
+-- --- BYPASS NETWORK OWNERSHIP (SEAT-HOPPING) - MANTIDO DO SCRIPT BASE ---
 local function executarBypassNetworkOwnership(assentoAlvo)
     local meuHRP = character and character:FindFirstChild("HumanoidRootPart")
     local meuHum = character and character:FindFirstChildOfClass("Humanoid")
     if not meuHRP or not meuHum or not assentoAlvo then return false end
     
-    -- Salvar posição original ANTES de fazer qualquer coisa
+    -- Salvar posição original
     posicaoOriginal = meuHRP.CFrame
     
     -- Verificar se o assento é válido
     if not assentoAlvo:IsA("BasePart") then return false end
     
-    -- Verificar se o assento está acessível
+    -- Verificar distância para evitar teleportes muito longos
     local distancia = (meuHRP.Position - assentoAlvo.Position).Magnitude
-    if distancia > 100 then 
-        print("Assento muito distante")
+    if distancia > 150 then 
         return false 
     end
     
-    -- Executar seat-hop
+    -- Executar seat-hop com tempos do script base
     local sucesso = false
     pcall(function()
         -- Teleportar para o assento
         meuHRP.CFrame = assentoAlvo.CFrame
-        task.wait(0.3)
+        task.wait(0.5) -- Tempo do script base
         
-        -- Sair do assento imediatamente
+        -- Sair do assento
         meuHum.Sit = false
         meuHum.Jump = true
-        task.wait(0.1)
+        meuHRP.CFrame = assentoAlvo.CFrame + Vector3.new(0, 8, 0)
+        task.wait(0.3) -- Tempo do script base
         
         -- Voltar para posição original
-        meuHRP.CFrame = posicaoOriginal
+        if posicaoOriginal then
+            meuHRP.CFrame = posicaoOriginal
+        end
         sucesso = true
     end)
     
@@ -278,42 +297,45 @@ local function escanearEColetar()
     objetosSelecionados = {}
     local meuNick = lp.Name
 
+    -- Buscar veículos que o jogador possui
     for _, obj in pairs(Workspace:GetDescendants()) do
-        if obj:IsA("Model") and string.find(obj.Name, meuNick) then
-            local alvoFisico = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
-            if alvoFisico and alvoFisico.Anchored == false then
-                if not table.find(objetosSelecionados, alvoFisico) then
-                    table.insert(objetosSelecionados, alvoFisico)
+        if obj:IsA("Model") then
+            -- Verificar se o veículo pertence ao jogador
+            local isOwner = false
+            if obj:FindFirstChild("Owner") and obj.Owner:IsA("StringValue") then
+                if obj.Owner.Value == meuNick then
+                    isOwner = true
                 end
-                
-                -- BYPASS APENAS SE FOR HELICÓPTERO (CORRIGIDO)
-                if ehHelicoptero(obj) then
-                    -- Procurar assento no modelo
-                    local assento = nil
-                    
-                    -- Primeiro tenta VehicleSeat
-                    assento = obj:FindFirstChildOfClass("VehicleSeat")
-                    
-                    -- Se não encontrar, tenta PilotsSeat
-                    if not assento then
-                        assento = obj:FindFirstChild("PilotSeat", true)
+            end
+            
+            -- Verificar se o nome do modelo contém o nome do jogador
+            if not isOwner and string.find(obj.Name, meuNick) then
+                isOwner = true
+            end
+            
+            if isOwner then
+                local alvoFisico = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
+                if alvoFisico and alvoFisico.Anchored == false then
+                    if not table.find(objetosSelecionados, alvoFisico) then
+                        table.insert(objetosSelecionados, alvoFisico)
                     end
                     
-                    -- Se ainda não encontrar, procura por qualquer BasePart com nome que indique assento
-                    if not assento then
-                        for _, child in pairs(obj:GetDescendants()) do
-                            if child:IsA("BasePart") then
-                                local nome = string.lower(child.Name)
-                                if string.find(nome, "seat") or string.find(nome, "pilot") or string.find(nome, "driver") then
-                                    assento = child
-                                    break
-                                end
-                            end
+                    -- Só executa bypass se for helicóptero E tiver assento
+                    if ehHelicoptero(obj) then
+                        local assentoEncontrado = nil
+                        
+                        -- Primeiro tenta VehicleSeat
+                        assentoEncontrado = obj:FindFirstChildOfClass("VehicleSeat")
+                        
+                        -- Depois tenta PilotSeat
+                        if not assentoEncontrado then
+                            assentoEncontrado = obj:FindFirstChild("PilotSeat", true)
                         end
-                    end
-                    
-                    if assento and assento:IsA("BasePart") then
-                        executarBypassNetworkOwnership(assento)
+                        
+                        -- Se encontrou assento, executa bypass
+                        if assentoEncontrado and assentoEncontrado:IsA("BasePart") then
+                            executarBypassNetworkOwnership(assentoEncontrado)
+                        end
                     end
                 end
             end
@@ -402,13 +424,18 @@ end
 
 -- --- ATUALIZAÇÃO E FILTRO DA LISTA DE JOGADORES ---
 local function atualizarLista()
+    if not gui.Enabled then return end
+    
     for _, item in pairs(scrollList:GetChildren()) do
         if item:IsA("TextButton") then
             item:Destroy()
         end
     end
 
-    for _, p in pairs(Players:GetPlayers()) do
+    local players = Players:GetPlayers()
+    table.sort(players, function(a, b) return a.Name < b.Name end)
+    
+    for _, p in pairs(players) do
         if p ~= lp then
             local btn = Instance.new("TextButton", scrollList)
             btn.Size = UDim2.new(1, -6, 0, 26)
@@ -430,36 +457,68 @@ local function atualizarLista()
             end)
         end
     end
-    scrollList.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y)
+    
+    -- Atualizar tamanho do canvas
+    task.wait()
+    scrollList.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 10)
 end
 
 Players.PlayerAdded:Connect(atualizarLista)
 Players.PlayerRemoving:Connect(atualizarLista)
-atualizarLista()
 
 -- FILTRO DA SEARCH BAR
 searchBar:GetPropertyChangedSignal("Text"):Connect(function()
     local busca = string.lower(searchBar.Text)
+    local qualquerVisivel = false
+    
     for _, btn in pairs(scrollList:GetChildren()) do
         if btn:IsA("TextButton") then
             if busca == "" or string.find(string.lower(btn.Text), busca) then
                 btn.Visible = true
+                qualquerVisivel = true
             else
                 btn.Visible = false
             end
         end
     end
-    scrollList.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y)
+    
+    -- Atualizar canvas size
+    task.wait()
+    scrollList.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 10)
 end)
 
 -- --- AÇÃO DO BOTÃO LANÇAR MATTER ---
 btnLancar.MouseButton1Click:Connect(function()
     if alvoSelecionado then
         btnLancar.Text = "CAPTURING..."
+        btnLancar.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        
         escanearEColetar()
         task.wait(0.5)
+        
+        if #objetosSelecionados > 0 then
+            iniciarAtaqueMassa(alvoSelecionado)
+            btnLancar.Text = "✓ LANÇADO!"
+            btnLancar.BackgroundColor3 = Color3.fromRGB(0, 80, 0)
+            
+            task.wait(1)
+            btnLancar.Text = "Lançar MATTER"
+            btnLancar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        else
+            btnLancar.Text = "NENHUM OBJETO"
+            btnLancar.BackgroundColor3 = Color3.fromRGB(80, 0, 0)
+            
+            task.wait(1)
+            btnLancar.Text = "Lançar MATTER"
+            btnLancar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        end
+    else
+        btnLancar.Text = "SELECIONE ALVO"
+        btnLancar.BackgroundColor3 = Color3.fromRGB(80, 50, 0)
+        
+        task.wait(1)
         btnLancar.Text = "Lançar MATTER"
-        iniciarAtaqueMassa(alvoSelecionado)
+        btnLancar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
     end
 end)
 
@@ -469,10 +528,14 @@ actionButton.MouseButton1Click:Connect(function()
         return
     end
 
-    alternarModo(not modoAtivo)
+    if modoAtivo then
+        resetarEstado()
+    else
+        alternarModo(true)
+    end
 end)
 
--- --- CAPTURA DE CLIQUES FÍSICOS NO MUNDO (CORRIGIDO) ---
+-- --- CAPTURA DE CLIQUES FÍSICOS NO MUNDO (MANTIDO DO SCRIPT BASE) ---
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed or not modoAtivo then return end
 
@@ -500,7 +563,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
                     end
                 end
             
-            -- CASO 2: Clicar em objetos/veículos físicos (CORRIGIDO)
+            -- CASO 2: Clicar em objetos/veículos físicos (MANTIDO DO SCRIPT BASE 0.1)
             else
                 local alvoFisico = nil
                 local modeloVeiculo = hitPart:FindFirstAncestorOfClass("Model") or hitPart
@@ -515,33 +578,31 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
                     end
                 end
 
-                if alvoFisico and not table.find(objetosSelecionados, alvoFisico) then
-                    table.insert(objetosSelecionados, alvoFisico)
-                    atualizarTexto()
+                if alvoFisico then
+                    if not table.find(objetosSelecionados, alvoFisico) then
+                        table.insert(objetosSelecionados, alvoFisico)
+                        atualizarTexto()
 
-                    -- BYPASS APENAS SE FOR HELICÓPTERO (CORRIGIDO)
-                    if ehHelicoptero(modeloVeiculo) then
-                        -- Procurar assento no modelo
-                        local assentoEncontrado = modeloVeiculo:FindFirstChildOfClass("VehicleSeat")
-                        
-                        if not assentoEncontrado then
-                            assentoEncontrado = modeloVeiculo:FindFirstChild("PilotSeat", true)
+                        -- --- LÓGICA DE BYPASS DO SCRIPT BASE 0.1 ---
+                        local assentoEncontrado = nil
+                        if modeloVeiculo then
+                            assentoEncontrado = modeloVeiculo:FindFirstChildOfClass("VehicleSeat") or modeloVeiculo:FindFirstChild("PilotSeat", true)
                         end
-                        
-                        if not assentoEncontrado then
-                            for _, child in pairs(modeloVeiculo:GetDescendants()) do
-                                if child:IsA("BasePart") then
-                                    local nome = string.lower(child.Name)
-                                    if string.find(nome, "seat") or string.find(nome, "pilot") or string.find(nome, "driver") then
-                                        assentoEncontrado = child
-                                        break
-                                    end
-                                end
+
+                        -- Verificação específica para helicópteros (MANTIDO DO SCRIPT BASE 0.1)
+                        if not assentoEncontrado and hitPart:FindFirstAncestor("Helicopters") then
+                            local modeloPaiDireto = hitPart:FindFirstAncestor("ChinookRescue") or hitPart.Parent
+                            if modeloPaiDireto then
+                                assentoEncontrado = modeloPaiDireto:FindFirstChild("PilotSeat", true) or modeloPaiDireto:FindFirstChildOfClass("VehicleSeat")
                             end
                         end
-                        
+
+                        -- SÓ EXECUTA SE ENCONTROU UM ASSENTO (MANTIDO DO SCRIPT BASE 0.1)
                         if assentoEncontrado and assentoEncontrado:IsA("BasePart") then
-                            executarBypassNetworkOwnership(assentoEncontrado)
+                            -- Verifica se é realmente um helicóptero antes de executar o bypass
+                            if ehHelicoptero(modeloVeiculo) or hitPart:FindFirstAncestor("Helicopters") then
+                                executarBypassNetworkOwnership(assentoEncontrado)
+                            end
                         end
                     end
                 end
@@ -561,7 +622,7 @@ local toolData = {
         alternarModo(true)
     end,
     OnUnequip = function()
-        alternarModo(false)
+        resetarEstado()
     end
 }
 
