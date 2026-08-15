@@ -1,51 +1,155 @@
 -- ============================================
--- PROJETO KILL V4 - MULTI-SELECTION (OMNI ORBIT) - CORRIGIDO
+-- PROJETO KILL V4 - MULTI-SELECTION (OMNI ORBIT) - VERSÃO FUNCIONAL
 -- ============================================
+-- [[ IMPORTANTE: Execute este script no console ou em um LocalScript dentro de StarterPlayerScripts ]]
+
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local StarterGui = game:GetService("StarterGui")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local lp = Players.LocalPlayer
+local playerGui = lp:WaitForChild("PlayerGui")
 local character = lp.Character or lp.CharacterAdded:Wait()
 local camera = Workspace.CurrentCamera
-local playerGui = lp:WaitForChild("PlayerGui")
 
--- --- VARIÁVEIS DE ESTADO ---
+-- ============================================
+-- CONFIGURAÇÕES
+-- ============================================
+local CONFIG = {
+    BotaoPosX = 0.02,      -- Posição X do botão na tela
+    BotaoPosY = 0.45,      -- Posição Y do botão na tela
+    TamanhoBotao = 80,     -- Tamanho do botão em pixels
+    DistanciaMaxima = 150, -- Distância máxima para bypass
+    TempoEspera = 0.5,     -- Tempo de espera para teleporte
+}
+
+-- ============================================
+-- VARIÁVEIS DE ESTADO
+-- ============================================
 local modoAtivo = false
 local objetosSelecionados = {}
 local conexaoAtaque = nil
 local posicaoOriginal = nil
 local bypassEmAndamento = false
-local aguardandoRetorno = false
-local toolSelecionada = nil
 local botaoCriado = false
+local teclaAtalho = Enum.KeyCode.G -- Tecla G para ativar/desativar
 
--- --- ATUALIZAR REFERÊNCIA DO CHARACTER ---
+-- ============================================
+-- ATUALIZAR REFERÊNCIA DO CHARACTER
+-- ============================================
 local function atualizarCharacter(newChar)
     character = newChar
     posicaoOriginal = nil
     bypassEmAndamento = false
-    aguardandoRetorno = false
+    -- Não resetar a seleção ao renascer
 end
 
 lp.CharacterAdded:Connect(atualizarCharacter)
 
--- --- TRANCAR AUTORIDADE DE REDE (SIMULATION RADIUS MÁXIMO) ---
-local sethp = sethiddenproperty or set_hidden_property
-if sethp then
-    task.spawn(function()
-        RunService.RenderStepped:Connect(function()
-            pcall(function()
-                sethp(lp, "SimulationRadius", 1e30)
-                sethp(lp, "MaxSimulationRadius", 1e30)
-            end)
-        end)
+-- ============================================
+-- FUNÇÃO PARA CRIAR O BOTÃO
+-- ============================================
+local function criarBotao()
+    if botaoCriado then return end
+    
+    -- Remove botão antigo se existir
+    local oldButton = playerGui:FindFirstChild("SelectMatterV4Button")
+    if oldButton then oldButton:Destroy() end
+    
+    local button = Instance.new("TextButton")
+    button.Name = "SelectMatterV4Button"
+    button.Parent = playerGui
+    button.Size = UDim2.new(0, CONFIG.TamanhoBotao, 0, CONFIG.TamanhoBotao)
+    button.Position = UDim2.new(CONFIG.BotaoPosX, 0, CONFIG.BotaoPosY, -(CONFIG.TamanhoBotao/2))
+    button.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    button.BackgroundTransparency = 0
+    button.BorderSizePixel = 0
+    button.Text = "SELECT\nMATTER"
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.TextTransparency = 0
+    button.Font = Enum.Font.Arcade
+    button.TextScaled = true
+    button.TextWrapped = true
+    button.ZIndex = 10
+    button.Visible = true
+    button.Active = true
+    button.Selectable = true
+    button.MouseButton1Click:Connect(function()
+        toggleModo()
     end)
+    
+    -- Estilo do botão
+    local uiStroke = Instance.new("UIStroke", button)
+    uiStroke.Color = Color3.fromRGB(255, 255, 255)
+    uiStroke.Thickness = 3
+    uiStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    
+    local uiCorner = Instance.new("UICorner", button)
+    uiCorner.CornerRadius = UDim.new(0, 2)
+    
+    botaoCriado = true
+    atualizarTexto()
+    return button
 end
 
--- --- VERIFICAÇÃO ESPECÍFICA DE HELICÓPTEROS ---
+-- ============================================
+-- ATUALIZAR TEXTO DO BOTÃO
+-- ============================================
+local function atualizarTexto()
+    local button = playerGui:FindFirstChild("SelectMatterV4Button")
+    if not button then return end
+    
+    if #objetosSelecionados > 0 then
+        button.Text = "DESTROY\n(" .. #objetosSelecionados .. ")"
+    else
+        button.Text = "SELECT\nMATTER"
+    end
+end
+
+-- ============================================
+-- ALTERNAR MODO
+-- ============================================
+function toggleModo()
+    if modoAtivo then
+        resetarEstado()
+    else
+        modoAtivo = true
+        local button = playerGui:FindFirstChild("SelectMatterV4Button")
+        if button then
+            button.BackgroundTransparency = 0.45
+            button.TextTransparency = 0.2
+        end
+        print("[SELECT MATTER] Modo ATIVADO - Clique em objetos para selecionar")
+    end
+end
+
+-- ============================================
+-- RESETAR ESTADO
+-- ============================================
+local function resetarEstado()
+    if conexaoAtaque then
+        conexaoAtaque:Disconnect()
+        conexaoAtaque = nil
+    end
+    objetosSelecionados = {}
+    modoAtivo = false
+    posicaoOriginal = nil
+    bypassEmAndamento = false
+    
+    local button = playerGui:FindFirstChild("SelectMatterV4Button")
+    if button then
+        button.BackgroundTransparency = 0
+        button.TextTransparency = 0
+    end
+    atualizarTexto()
+    print("[SELECT MATTER] Modo DESATIVADO")
+end
+
+-- ============================================
+-- VERIFICAR SE É HELICÓPTERO
+-- ============================================
 local function ehHelicoptero(instancia)
     if not instancia then return false end
     
@@ -70,16 +174,16 @@ local function ehHelicoptero(instancia)
     
     if model:FindFirstChild("Rotor") or 
        model:FindFirstChild("MainRotor") or 
-       model:FindFirstChild("TailRotor") or
-       model:FindFirstChild("RotorHead") or
-       model:FindFirstChild("Blades") then
+       model:FindFirstChild("TailRotor") then
         return true
     end
     
     return false
 end
 
--- --- ENCONTRAR ASSENTO NO MODELO ---
+-- ============================================
+-- ENCONTRAR ASSENTO
+-- ============================================
 local function encontrarAssento(modelo)
     if not modelo then return nil end
     
@@ -104,10 +208,11 @@ local function encontrarAssento(modelo)
     return nil
 end
 
--- --- BYPASS NETWORK OWNERSHIP ---
+-- ============================================
+-- BYPASS NETWORK OWNERSHIP (SEAT-HOP)
+-- ============================================
 local function executarBypassNetworkOwnership(assentoAlvo)
     if bypassEmAndamento then return false end
-    if aguardandoRetorno then return false end
     
     local meuHRP = character and character:FindFirstChild("HumanoidRootPart")
     local meuHum = character and character:FindFirstChildOfClass("Humanoid")
@@ -115,24 +220,28 @@ local function executarBypassNetworkOwnership(assentoAlvo)
     if not meuHRP or not meuHum or not assentoAlvo then return false end
     if not assentoAlvo:IsA("BasePart") then return false end
     
-    posicaoOriginal = meuHRP.CFrame
-    
     local distancia = (meuHRP.Position - assentoAlvo.Position).Magnitude
-    if distancia > 150 then
+    if distancia > CONFIG.DistanciaMaxima then
+        print("[BYPASS] Assento muito distante: " .. distancia)
         return false
     end
     
+    posicaoOriginal = meuHRP.CFrame
     bypassEmAndamento = true
     
     task.spawn(function()
         local sucesso = false
         pcall(function()
+            print("[BYPASS] Teleportando para o assento...")
             meuHRP.CFrame = assentoAlvo.CFrame
-            task.wait(0.5)
+            task.wait(CONFIG.TempoEspera)
+            
+            print("[BYPASS] Saindo do assento...")
             meuHum.Sit = false
             meuHum.Jump = true
-            task.wait(0.2)
-            task.wait(0.1)
+            task.wait(0.3)
+            
+            print("[BYPASS] Voltando para posição original...")
             if posicaoOriginal then
                 meuHRP.CFrame = posicaoOriginal
                 sucesso = true
@@ -140,168 +249,107 @@ local function executarBypassNetworkOwnership(assentoAlvo)
         end)
         
         bypassEmAndamento = false
-        aguardandoRetorno = false
+        
+        if sucesso then
+            print("[BYPASS] ✅ Bypass executado com sucesso!")
+        else
+            print("[BYPASS] ❌ Falha no bypass, tentando recuperar posição...")
+            if posicaoOriginal and meuHRP then
+                pcall(function()
+                    meuHRP.CFrame = posicaoOriginal
+                end)
+            end
+        end
     end)
     
     return true
 end
 
--- --- FUNÇÃO PARA CRIAR O BOTÃO NA TELA ---
-local function criarBotao()
-    if botaoCriado then return actionButton end
-    
-    -- Verifica se já existe um botão
-    local existingButton = playerGui:FindFirstChild("SelectMatterV4Button")
-    if existingButton then
-        existingButton:Destroy()
-    end
-    
-    local button = Instance.new("TextButton")
-    button.Name = "SelectMatterV4Button"
-    button.Parent = playerGui
-    button.Size = UDim2.new(0, 80, 0, 80)
-    button.Position = UDim2.new(0.02, 0, 0.5, -40)
-    button.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    button.BackgroundTransparency = 0
-    button.BorderSizePixel = 0
-    button.Text = "SELECT\nMATTER V4"
-    button.TextColor3 = Color3.fromRGB(255, 255, 255)
-    button.TextTransparency = 0
-    button.Font = Enum.Font.Arcade
-    button.TextScaled = true
-    button.TextWrapped = true
-    button.ZIndex = 10
-    button.Visible = true
-    button.Active = true
-    button.Selectable = true
-    
-    local uiPadding = Instance.new("UIPadding")
-    uiPadding.PaddingTop = UDim.new(0.08, 0)
-    uiPadding.PaddingBottom = UDim.new(0.08, 0)
-    uiPadding.PaddingLeft = UDim.new(0.08, 0)
-    uiPadding.PaddingRight = UDim.new(0.08, 0)
-    uiPadding.Parent = button
-    
-    local uiStroke = Instance.new("UIStroke")
-    uiStroke.Color = Color3.fromRGB(255, 255, 255)
-    uiStroke.Thickness = 3
-    uiStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    uiStroke.LineJoinMode = Enum.LineJoinMode.Miter
-    uiStroke.Parent = button
-    
-    local uiCorner = Instance.new("UICorner")
-    uiCorner.CornerRadius = UDim.new(0, 2)
-    uiCorner.Parent = button
-    
-    botaoCriado = true
-    
-    -- Configura o clique do botão
-    button.MouseButton1Click:Connect(function()
-        if modoAtivo then
-            resetarEstado()
-        else
-            modoAtivo = true
-            button.BackgroundTransparency = 0.45
-            button.TextTransparency = 0.2
-        end
-    end)
-    
-    return button
-end
-
--- --- FUNÇÃO PARA ATUALIZAR TEXTO DO BOTÃO ---
-local function atualizarTexto()
-    if not botaoCriado then return end
-    local button = playerGui:FindFirstChild("SelectMatterV4Button")
-    if not button then return end
-    
-    if #objetosSelecionados > 0 then
-        button.Text = "DESTROY\n(" .. #objetosSelecionados .. ")"
-    else
-        button.Text = "SELECT\nMATTER V4"
-    end
-end
-
--- --- RESETAR ESTADO E LIMPAR SELEÇÃO ---
-local function resetarEstado()
-    if conexaoAtaque then
-        conexaoAtaque:Disconnect()
-        conexaoAtaque = nil
-    end
-    objetosSelecionados = {}
-    modoAtivo = false
-    posicaoOriginal = nil
-    bypassEmAndamento = false
-    aguardandoRetorno = false
-    
-    local button = playerGui:FindFirstChild("SelectMatterV4Button")
-    if button then
-        button.BackgroundTransparency = 0
-        button.TextTransparency = 0
-    end
-    atualizarTexto()
-end
-
--- --- INJEÇÃO DOS MOTORES DE FORÇA BRUTA (FLING BALL) ---
+-- ============================================
+-- APLICAR MOTORES DE FLING
+-- ============================================
 local function aplicarMotoresFling(corpo)
+    -- Remove motores antigos
     for _, child in pairs(corpo:GetChildren()) do
-        if child:IsA("BodyVelocity") or child:IsA("BodyAngularVelocity") or child.Name == "BobsledSpinMotor" then
+        if child:IsA("BodyVelocity") or child:IsA("BodyAngularVelocity") then
             child:Destroy()
         end
     end
 
     corpo.CanCollide = true
     corpo.Massless = false
-    corpo.CustomPhysicalProperties = PhysicalProperties.new(100, 100, 0, 100, 100)
     
-    local forcaMassiva = Vector3.new(math.huge * math.huge, math.huge * math.huge, math.huge * math.huge)
+    pcall(function()
+        corpo.CustomPhysicalProperties = PhysicalProperties.new(100, 100, 0, 100, 100)
+    end)
+    
+    local forcaMassiva = Vector3.new(9e9, 9e9, 9e9)
 
+    -- BodyVelocity para movimento linear
     local velocity = Instance.new("BodyVelocity")
     velocity.Name = "FlingPowerLinear"
     velocity.Velocity = Vector3.new(999999, 999999, 999999)
     velocity.MaxForce = forcaMassiva
-    velocity.P = math.huge
+    velocity.P = 10000
     velocity.Parent = corpo  
 
+    -- BodyAngularVelocity para rotação
     local angularVelocity = Instance.new("BodyAngularVelocity")
     angularVelocity.Name = "FlingPowerAngular"
     angularVelocity.AngularVelocity = Vector3.new(999999, 999999, 999999)
     angularVelocity.MaxTorque = forcaMassiva
-    angularVelocity.P = math.huge
+    angularVelocity.P = 10000
     angularVelocity.Parent = corpo
 end
 
--- --- EXECUÇÃO DO ATAQUE EM MASSA ---
+-- ============================================
+-- INICIAR ATAQUE EM MASSA
+-- ============================================
 local function iniciarAtaqueMassa(alvoPlayer)
     local alvoChar = alvoPlayer.Character
-    if not alvoChar or not alvoChar:FindFirstChild("HumanoidRootPart") then return end
+    if not alvoChar or not alvoChar:FindFirstChild("HumanoidRootPart") then 
+        print("[ATAQUE] Alvo inválido!")
+        return 
+    end
 
-    local alvoHum = alvoChar.Humanoid
+    local alvoHum = alvoChar:FindFirstChildOfClass("Humanoid")
+    if not alvoHum or alvoHum.Health <= 0 then
+        print("[ATAQUE] Alvo já está morto!")
+        return
+    end
+
     local meuHRP = character and character:FindFirstChild("HumanoidRootPart")
+    if not meuHRP or #objetosSelecionados == 0 then 
+        print("[ATAQUE] Sem objetos selecionados!")
+        return 
+    end
 
-    if not meuHRP or #objetosSelecionados == 0 then return end
+    print("[ATAQUE] Iniciando ataque em " .. alvoPlayer.Name .. " com " .. #objetosSelecionados .. " objetos!")
 
+    -- Aplica motores de fling em todos os objetos
     for _, objeto in pairs(objetosSelecionados) do
         if objeto and objeto.Parent then
             aplicarMotoresFling(objeto)
-
-            local nc = Instance.new("NoCollisionConstraint", objeto)
-            nc.Part0 = objeto
-            nc.Part1 = meuHRP
-
-            if sethp then
-                pcall(function() sethp(objeto, "NetworkOwner", lp) end)
-            elseif objeto.SetNetworkOwner then
+            
+            -- Tenta transferir network ownership
+            if objeto.SetNetworkOwner then
                 pcall(function() objeto:SetNetworkOwner(lp) end)
             end
         end
     end
 
-    local partesAlvo = {"HumanoidRootPart", "Head", "LowerTorso"}
+    local partesAlvo = {"HumanoidRootPart", "Head", "LowerTorso", "UpperTorso"}
     local indexParte = 1
+    local tempoBase = tick()
+
+    if conexaoAtaque then
+        conexaoAtaque:Disconnect()
+        conexaoAtaque = nil
+    end
 
     conexaoAtaque = RunService.Heartbeat:Connect(function()
-        if not alvoChar.Parent or alvoHum.Health <= 0 or #objetosSelecionados == 0 then
+        if not alvoChar.Parent or not alvoHum or alvoHum.Health <= 0 or #objetosSelecionados == 0 then
+            print("[ATAQUE] Alvo morreu ou sem objetos, finalizando...")
             resetarEstado()
             return
         end
@@ -310,32 +358,42 @@ local function iniciarAtaqueMassa(alvoPlayer)
         local p = alvoChar:FindFirstChild(nomeParte)
 
         if p then
+            local tempo = tick() * 30
             local offsetCurto = Vector3.new(0, 0, 0)
-            if p.AssemblyLinearVelocity.Magnitude > 0.1 then
-                offsetCurto = p.AssemblyLinearVelocity.Unit * 0.8
+            
+            if p.AssemblyLinearVelocity and p.AssemblyLinearVelocity.Magnitude > 0.1 then
+                offsetCurto = p.AssemblyLinearVelocity.Unit * 0.5
             end
-
-            local tempo = tick() * 45 
 
             for i = #objetosSelecionados, 1, -1 do
                 local objeto = objetosSelecionados[i]
 
                 if objeto and objeto.Parent then
-                    local angulo = tempo + (i * (math.pi / #objetosSelecionados))
-                    local raio = 1 + (math.sin(tempo + i) * 0.5 + 0.5) 
-
+                    -- Calcula posição orbital
+                    local angulo = tempo + (i * (math.pi * 2 / #objetosSelecionados))
+                    local raio = 1.5 + (math.sin(tempo * 0.5 + i) * 0.5)
+                    
                     local offsetOrbital = Vector3.new(
                         math.cos(angulo) * raio,
-                        math.sin(angulo * 1.5) * raio, 
+                        math.sin(angulo * 1.3) * raio * 0.8,
                         math.sin(angulo) * raio
                     )
 
                     local posicaoFinal = p.Position + offsetCurto + offsetOrbital
-                    local direcaoGiro = CFrame.Angles(math.sin(tempo) * 3, math.cos(tempo) * 3, math.sin(tempo * 2) * 3)
+                    local direcaoGiro = CFrame.Angles(
+                        math.sin(tempo + i) * 2,
+                        math.cos(tempo + i) * 2,
+                        math.sin(tempo * 0.5 + i) * 2
+                    )
 
+                    -- Move o objeto
                     objeto.CFrame = CFrame.new(posicaoFinal) * direcaoGiro
-                    objeto.Velocity = Vector3.new(999999, 999999, 999999)
-                    objeto.RotVelocity = Vector3.new(999999, 999999, 999999)
+                    
+                    -- Aplica velocidade
+                    if objeto:IsA("BasePart") then
+                        objeto.Velocity = Vector3.new(99999, 99999, 99999)
+                        objeto.RotVelocity = Vector3.new(99999, 99999, 99999)
+                    end
                 else
                     table.remove(objetosSelecionados, i)
                     atualizarTexto()
@@ -348,62 +406,15 @@ local function iniciarAtaqueMassa(alvoPlayer)
     end)
 end
 
--- --- FUNÇÃO PARA VERIFICAR SE O JOGADOR ESTÁ SEGURANDO A TOOL ---
-local function verificarTool()
-    local tool = lp.Character and lp.Character:FindFirstChildOfClass("Tool")
-    if tool then
-        -- Se estiver segurando uma tool, verifica se é a nossa
-        if tool.Name == "SelectMatterV4" or tool.Name == "SELECT MATTER" or tool.Name == "SelectMatter" then
-            if not botaoCriado then
-                criarBotao()
-                modoAtivo = true
-                local button = playerGui:FindFirstChild("SelectMatterV4Button")
-                if button then
-                    button.BackgroundTransparency = 0.45
-                    button.TextTransparency = 0.2
-                end
-            end
-        else
-            -- Se não for nossa tool, remove o botão
-            if botaoCriado then
-                local button = playerGui:FindFirstChild("SelectMatterV4Button")
-                if button then button:Destroy() end
-                botaoCriado = false
-                resetarEstado()
-            end
-        end
-    else
-        -- Se não tiver tool, remove o botão
-        if botaoCriado then
-            local button = playerGui:FindFirstChild("SelectMatterV4Button")
-            if button then button:Destroy() end
-            botaoCriado = false
-            resetarEstado()
-        end
-    end
-end
-
--- --- MONITORAR MUDANÇAS NO CHARACTER PARA VERIFICAR A TOOL ---
-lp.CharacterAdded:Connect(function(char)
-    character = char
-    -- Aguarda um pouco para a tool ser carregada
-    task.wait(0.5)
-    verificarTool()
-end)
-
--- --- MONITORAR SE O JOGADOR ESTÁ SEGURANDO A TOOL ---
-RunService.Heartbeat:Connect(function()
-    if not character then return end
-    verificarTool()
-end)
-
--- --- CAPTURA DE CLIQUES NO MUNDO ---
+-- ============================================
+-- CAPTURA DE CLIQUES NO MUNDO
+-- ============================================
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed or not modoAtivo then return end
-    if bypassEmAndamento or aguardandoRetorno then return end
+    if bypassEmAndamento then return end
     if not botaoCriado then return end
 
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
         local pos = input.Position
         local unitRay = camera:ScreenPointToRay(pos.X, pos.Y)
 
@@ -417,57 +428,36 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             local hitPart = raycastResult.Instance
             local model = hitPart:FindFirstAncestorOfClass("Model")
 
-            -- CASO 1: Clicar em um jogador inimigo
-            if model and model:FindFirstChild("Humanoid") then
+            -- CASO 1: Clicou em um jogador
+            if model and model:FindFirstChildOfClass("Humanoid") then
                 local tPlayer = Players:GetPlayerFromCharacter(model)
-
-                if tPlayer and tPlayer ~= lp then
-                    if #objetosSelecionados > 0 then
-                        if conexaoAtaque then conexaoAtaque:Disconnect() end
-                        iniciarAtaqueMassa(tPlayer)
-                    end
+                if tPlayer and tPlayer ~= lp and #objetosSelecionados > 0 then
+                    print("[SELECAO] Atacando " .. tPlayer.Name)
+                    iniciarAtaqueMassa(tPlayer)
                 end
 
-            -- CASO 2: Clicar em objetos/veículos físicos
+            -- CASO 2: Clicou em um objeto
             else
                 local alvoFisico = nil
                 local modeloVeiculo = hitPart:FindFirstAncestorOfClass("Model") or hitPart
 
-                if hitPart.Anchored == false then
-                    if hitPart:IsA("BasePart") then
-                        alvoFisico = hitPart
-                    elseif modeloVeiculo:IsA("Model") and modeloVeiculo.PrimaryPart then
-                        alvoFisico = modeloVeiculo.PrimaryPart
-                    else
-                        alvoFisico = hitPart
-                    end
+                if hitPart.Anchored == false and hitPart:IsA("BasePart") then
+                    alvoFisico = hitPart
                 end
 
                 if alvoFisico and not table.find(objetosSelecionados, alvoFisico) then
                     table.insert(objetosSelecionados, alvoFisico)
                     atualizarTexto()
-                    print("Objeto selecionado: " .. (alvoFisico.Name or "sem nome"))
+                    print("[SELECAO] Objeto selecionado: " .. (alvoFisico.Name or "Part"))
 
+                    -- Verifica se é helicóptero e faz bypass
                     local modeloReal = alvoFisico:FindFirstAncestorOfClass("Model") or alvoFisico
-                    
                     if ehHelicoptero(modeloReal) then
-                        print("Helicóptero detectado! Buscando assento...")
-                        
-                        local assentoEncontrado = encontrarAssento(modeloReal)
-                        
-                        if assentoEncontrado then
-                            print("Assento encontrado: " .. assentoEncontrado.Name)
-                            aguardandoRetorno = true
-                            local bypassExecutado = executarBypassNetworkOwnership(assentoEncontrado)
-                            
-                            if not bypassExecutado then
-                                aguardandoRetorno = false
-                                print("Falha ao executar bypass no assento")
-                            else
-                                print("Bypass em andamento para o helicóptero")
-                            end
-                        else
-                            print("Nenhum assento encontrado no helicóptero")
+                        print("[HELI] Helicóptero detectado!")
+                        local assento = encontrarAssento(modeloReal)
+                        if assento then
+                            print("[HELI] Assento encontrado: " .. assento.Name)
+                            executarBypassNetworkOwnership(assento)
                         end
                     end
                 end
@@ -476,37 +466,52 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
--- --- CRIA O BOTÃO INICIALMENTE SE O JOGADOR JÁ ESTIVER SEGURANDO A TOOL ---
-task.wait(1)
-verificarTool()
-
--- --- REGISTRO NO ADAPTADOR ---
-_G.ScriptAdapter = _G.ScriptAdapter or {}
-_G.ScriptAdapter.Queue = _G.ScriptAdapter.Queue or {}
-
-local toolData = {
-    Id = "SelectMatterV4_Tool",
-    OnEquip = function()
-        criarBotao()
-        modoAtivo = true
-        local button = playerGui:FindFirstChild("SelectMatterV4Button")
-        if button then
-            button.BackgroundTransparency = 0.45
-            button.TextTransparency = 0.2
-        end
-    end,
-    OnUnequip = function()
-        resetarEstado()
-        local button = playerGui:FindFirstChild("SelectMatterV4Button")
-        if button then button:Destroy() end
-        botaoCriado = false
+-- ============================================
+-- TECLA DE ATALHO (G)
+-- ============================================
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    
+    if input.KeyCode == teclaAtalho then
+        toggleModo()
     end
-}
+end)
 
-if _G.ScriptAdapter and _G.ScriptAdapter.RegisterTool then
-    _G.ScriptAdapter:RegisterTool(toolData)
-else
-    table.insert(_G.ScriptAdapter.Queue, toolData)
+-- ============================================
+-- INICIALIZAÇÃO
+-- ============================================
+-- Cria o botão automaticamente
+criarBotao()
+
+-- Mensagem de boas vindas
+print("========================================")
+print("  SELECT MATTER V4 - CARREGADO!")
+print("========================================")
+print("  [G] - Ativar/Desativar modo")
+print("  [Clique] - Selecionar objeto")
+print("  [Clique em Jogador] - Atacar")
+print("========================================")
+
+-- Mostra notificação no jogo
+local function mostrarNotificacao(texto)
+    local notif = Instance.new("TextLabel")
+    notif.Parent = playerGui
+    notif.Size = UDim2.new(0, 400, 0, 50)
+    notif.Position = UDim2.new(0.5, -200, 0.85, 0)
+    notif.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    notif.BackgroundTransparency = 0.3
+    notif.TextColor3 = Color3.fromRGB(255, 255, 255)
+    notif.Font = Enum.Font.Arcade
+    notif.TextScaled = true
+    notif.Text = texto
+    notif.ZIndex = 10
+    
+    local stroke = Instance.new("UIStroke", notif)
+    stroke.Color = Color3.fromRGB(255, 255, 255)
+    stroke.Thickness = 2
+    
+    task.wait(3)
+    notif:Destroy()
 end
 
-print("SELECT MATTER V4 CORRIGIDO - Carregado com sucesso!")
+mostrarNotificacao("[SELECT MATTER] Pressione G para ativar")
