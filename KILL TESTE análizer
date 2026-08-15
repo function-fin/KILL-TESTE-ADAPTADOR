@@ -1,5 +1,5 @@
 -- ============================================
--- PROJETO KILL V4 - MULTI-SELECTION (AURA CAPTURADOR V4) - CORRIGIDO V3
+-- PROJETO KILL V4 - MULTI-SELECTION (OMNI ORBIT) - CORRIGIDO
 -- ============================================
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -9,54 +9,24 @@ local UserInputService = game:GetService("UserInputService")
 local lp = Players.LocalPlayer
 local character = lp.Character or lp.CharacterAdded:Wait()
 local camera = Workspace.CurrentCamera
-local playerGui = lp:WaitForChild("PlayerGui")
 
 -- --- VARIÁVEIS DE ESTADO ---
 local modoAtivo = false
 local objetosSelecionados = {}
 local conexaoAtaque = nil
-local alvoSelecionado = nil
 local posicaoOriginal = nil
-local guiCriada = false
-local bypassEmExecucao = false
-local aguardandoSeguranca = false -- NOVA: Controla se estamos aguardando voltar da posição segura
-local alvoParaAtacar = nil -- NOVA: Armazena o alvo para atacar após voltar
+local bypassEmAndamento = false
+local aguardandoRetorno = false
 
--- --- RESETAR ESTADO COMPLETO ---
-local function resetarEstadoCompleto()
-    if conexaoAtaque then
-        conexaoAtaque:Disconnect()
-        conexaoAtaque = nil
-    end
-    objetosSelecionados = {}
-    modoAtivo = false
-    alvoSelecionado = nil
+-- --- ATUALIZAR REFERÊNCIA DO CHARACTER ---
+local function atualizarCharacter(newChar)
+    character = newChar
     posicaoOriginal = nil
-    bypassEmExecucao = false
-    aguardandoSeguranca = false
-    alvoParaAtacar = nil
-    
-    if gui then
-        gui.Enabled = false
-    end
-    
-    if actionButton then
-        actionButton.BackgroundTransparency = 0
-        actionButton.TextTransparency = 0
-    end
-    
-    atualizarTexto()
+    bypassEmAndamento = false
+    aguardandoRetorno = false
 end
 
--- --- RECONECTAR EVENTOS DO PERSONAGEM ---
-lp.CharacterAdded:Connect(function(newChar)
-    character = newChar
-    resetarEstadoCompleto()
-end)
-
-lp.CharacterRemoving:Connect(function()
-    resetarEstadoCompleto()
-end)
+lp.CharacterAdded:Connect(atualizarCharacter)
 
 -- --- TRANCAR AUTORIDADE DE REDE (SIMULATION RADIUS MÁXIMO) ---
 local sethp = sethiddenproperty or set_hidden_property
@@ -71,124 +41,196 @@ if sethp then
     end)
 end
 
--- --- VERIFICAÇÃO ESPECÍFICA DE HELICÓPTEROS ---
+-- --- VERIFICAÇÃO ESPECÍFICA DE HELICÓPTEROS (CORRIGIDO) ---
 local function ehHelicoptero(instancia)
     if not instancia then return false end
     
+    -- Obtém o modelo real
     local model = instancia:IsA("Model") and instancia or instancia:FindFirstAncestorOfClass("Model")
     if not model then return false end
     
+    -- Verifica pelo nome
     local nome = string.lower(model.Name)
-    
-    local heliNomes = {
+    local padroesHeli = {
         "chinook", "heli", "copter", "helicopter", "chopper",
         "uh-60", "uh60", "ah-64", "ah64", "apache", "blackhawk",
         "bell", "robinson", "ec-145", "ec145", "h145", "md-500",
         "md500", "bo-105", "bo105", "enstrom", "sikorsky", "eurocopter",
         "airbus", "agusta", "westland", "mi-24", "mi24", "hind",
-        "rescue", "medevac", "transport"
+        "osprey", "v-22", "v22", "merlin", "lynx", "gazelle"
     }
     
-    for _, padrao in pairs(heliNomes) do
+    for _, padrao in pairs(padroesHeli) do
         if string.find(nome, padrao) then
             return true
         end
     end
     
+    -- Verifica por partes típicas de helicóptero
     if model:FindFirstChild("Rotor") or 
        model:FindFirstChild("MainRotor") or 
        model:FindFirstChild("TailRotor") or
        model:FindFirstChild("RotorHead") or
-       model:FindFirstChild("Blades") or
-       model:FindFirstChild("Helicopter") then
+       model:FindFirstChild("Blades") then
         return true
     end
     
     return false
 end
 
--- --- ENCONTRAR ASSENTO EM UM MODELO ---
+-- --- ENCONTRAR ASSENTO NO MODELO ---
 local function encontrarAssento(modelo)
     if not modelo then return nil end
     
+    -- Tenta VehicleSeat
     local assento = modelo:FindFirstChildOfClass("VehicleSeat")
+    if assento then return assento end
     
-    if not assento then
-        assento = modelo:FindFirstChild("PilotSeat", true)
-    end
+    -- Tenta PilotSeat
+    assento = modelo:FindFirstChild("PilotSeat", true)
+    if assento then return assento end
     
-    if not assento then
-        for _, child in pairs(modelo:GetDescendants()) do
-            if child:IsA("BasePart") then
-                local nome = string.lower(child.Name)
-                if string.find(nome, "seat") or string.find(nome, "pilot") or 
-                   string.find(nome, "driver") or string.find(nome, "cockpit") then
-                    assento = child
-                    break
-                end
+    -- Procura por qualquer parte com nome de assento
+    for _, child in pairs(modelo:GetDescendants()) do
+        if child:IsA("BasePart") then
+            local nome = string.lower(child.Name)
+            if string.find(nome, "seat") or 
+               string.find(nome, "pilot") or 
+               string.find(nome, "driver") or
+               string.find(nome, "cockpit") then
+                return child
             end
         end
     end
     
-    return assento
+    return nil
 end
 
--- --- BYPASS NETWORK OWNERSHIP (SEAT-HOPPING) COM SEGURANÇA ---
-local function executarBypassNetworkOwnership(assentoAlvo, callbackAposSeguranca)
-    if bypassEmExecucao then return false end
+-- --- BYPASS NETWORK OWNERSHIP CORRIGIDO (COM VERIFICAÇÃO) ---
+local function executarBypassNetworkOwnership(assentoAlvo)
+    if bypassEmAndamento then return false end
+    if aguardandoRetorno then return false end
     
     local meuHRP = character and character:FindFirstChild("HumanoidRootPart")
     local meuHum = character and character:FindFirstChildOfClass("Humanoid")
+    
     if not meuHRP or not meuHum or not assentoAlvo then return false end
-    
-    -- Salvar posição original ANTES de fazer qualquer coisa
-    posicaoOriginal = meuHRP.CFrame
-    
     if not assentoAlvo:IsA("BasePart") then return false end
     
+    -- Salva posição original
+    posicaoOriginal = meuHRP.CFrame
+    
+    -- Verifica distância
     local distancia = (meuHRP.Position - assentoAlvo.Position).Magnitude
-    if distancia > 100 then 
-        return false 
+    if distancia > 150 then
+        print("Assento muito distante: " .. distancia)
+        return false
     end
     
-    bypassEmExecucao = true
-    aguardandoSeguranca = true
+    bypassEmAndamento = true
     
-    -- Executar seat-hop
+    local sucesso = false
     task.spawn(function()
-        local sucesso = false
         pcall(function()
-            -- Teleportar para o assento
+            -- 1. Teleporta para o assento
             meuHRP.CFrame = assentoAlvo.CFrame
-            task.wait(0.3)
+            task.wait(0.5) -- Tempo para o jogo registrar
             
-            -- Sair do assento imediatamente
+            -- 2. Força sair do assento
             meuHum.Sit = false
             meuHum.Jump = true
+            task.wait(0.2)
+            
+            -- 3. Pequena pausa para estabilizar
             task.wait(0.1)
             
-            -- Voltar para posição original
+            -- 4. Volta para posição original
             if posicaoOriginal then
                 meuHRP.CFrame = posicaoOriginal
+                sucesso = true
             end
-            sucesso = true
         end)
         
-        bypassEmExecucao = false
-        aguardandoSeguranca = false
+        bypassEmAndamento = false
+        aguardandoRetorno = false
         
-        -- AGORA QUE ESTAMOS EM SEGURANÇA, EXECUTAR O ATAQUE
-        if sucesso and callbackAposSeguranca then
-            task.wait(0.2) -- Pequeno delay extra para garantir que está seguro
-            callbackAposSeguranca()
+        if sucesso then
+            print("Bypass executado com sucesso!")
+        else
+            print("Falha no bypass, tentando recuperar posição...")
+            -- Tenta recuperar posição se algo deu errado
+            if posicaoOriginal and meuHRP then
+                pcall(function()
+                    meuHRP.CFrame = posicaoOriginal
+                end)
+            end
+            bypassEmAndamento = false
         end
     end)
     
     return true
 end
 
--- --- MOTORES DE FLING ---
+-- --- CRIAÇÃO DO BOTÃO UI DA TOOL ---
+local actionButton = Instance.new("TextButton")
+actionButton.Name = "SelectMatterV4Button"
+actionButton.Size = UDim2.new(0, 65, 0, 65)
+actionButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+actionButton.BackgroundTransparency = 0
+actionButton.BorderSizePixel = 0
+actionButton.Text = "SELECT\nMATTER V4"
+actionButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+actionButton.TextTransparency = 0
+actionButton.Font = Enum.Font.Arcade
+actionButton.TextScaled = true
+actionButton.TextWrapped = true
+
+local uiPadding = Instance.new("UIPadding")
+uiPadding.PaddingTop = UDim.new(0.08, 0)
+uiPadding.PaddingBottom = UDim.new(0.08, 0)
+uiPadding.PaddingLeft = UDim.new(0.08, 0)
+uiPadding.PaddingRight = UDim.new(0.08, 0)
+uiPadding.Parent = actionButton
+
+local uiStroke = Instance.new("UIStroke")
+uiStroke.Color = Color3.fromRGB(255, 255, 255)
+uiStroke.Thickness = 3
+uiStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+uiStroke.LineJoinMode = Enum.LineJoinMode.Miter
+uiStroke.Parent = actionButton
+
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0, 2)
+uiCorner.Parent = actionButton
+
+-- --- FUNÇÃO PARA ATUALIZAR TEXTO DO BOTÃO ---
+local function atualizarTexto()
+    if #objetosSelecionados > 0 then
+        actionButton.Text = "DESTROY\n(" .. #objetosSelecionados .. ")"
+    else
+        actionButton.Text = "SELECT\nMATTER V4"
+    end
+end
+
+-- --- RESETAR ESTADO E LIMPAR SELEÇÃO ---
+local function resetarEstado()
+    if conexaoAtaque then
+        conexaoAtaque:Disconnect()
+        conexaoAtaque = nil
+    end
+    objetosSelecionados = {}
+    modoAtivo = false
+    posicaoOriginal = nil
+    bypassEmAndamento = false
+    aguardandoRetorno = false
+    actionButton.BackgroundTransparency = 0
+    actionButton.TextTransparency = 0
+    atualizarTexto()
+end
+
+-- --- INJEÇÃO DOS MOTORES DE FORÇA BRUTA (FLING BALL) ---
 local function aplicarMotoresFling(corpo)
+    -- Remove motores antigos
     for _, child in pairs(corpo:GetChildren()) do
         if child:IsA("BodyVelocity") or child:IsA("BodyAngularVelocity") or child.Name == "BobsledSpinMotor" then
             child:Destroy()
@@ -198,7 +240,7 @@ local function aplicarMotoresFling(corpo)
     corpo.CanCollide = true
     corpo.Massless = false
     corpo.CustomPhysicalProperties = PhysicalProperties.new(100, 100, 0, 100, 100)
-
+    
     local forcaMassiva = Vector3.new(math.huge * math.huge, math.huge * math.huge, math.huge * math.huge)
 
     local velocity = Instance.new("BodyVelocity")
@@ -216,30 +258,17 @@ local function aplicarMotoresFling(corpo)
     angularVelocity.Parent = corpo
 end
 
--- --- FUNÇÃO PARA EXECUTAR O ATAQUE (SEGURANÇA GARANTIDA) ---
-local function executarAtaqueComSeguranca(alvoPlayer)
-    -- Verificar se o alvo ainda é válido
-    if not alvoPlayer then return end
-    
+-- --- EXECUÇÃO DO ATAQUE EM MASSA ---
+local function iniciarAtaqueMassa(alvoPlayer)
     local alvoChar = alvoPlayer.Character
     if not alvoChar or not alvoChar:FindFirstChild("HumanoidRootPart") then return end
 
     local alvoHum = alvoChar.Humanoid
-    if not alvoHum or alvoHum.Health <= 0 then return end
-    
     local meuHRP = character and character:FindFirstChild("HumanoidRootPart")
+
     if not meuHRP or #objetosSelecionados == 0 then return end
 
-    -- Verificar se estamos realmente em segurança (posição original)
-    if posicaoOriginal then
-        local distanciaAtual = (meuHRP.Position - posicaoOriginal.Position).Magnitude
-        if distanciaAtual > 5 then
-            -- Ainda não voltou totalmente, esperar mais um pouco
-            task.wait(0.3)
-        end
-    end
-
-    -- Aplicar motores de fling e constraints
+    -- Aplica motores de fling em todos os objetos selecionados
     for _, objeto in pairs(objetosSelecionados) do
         if objeto and objeto.Parent then
             aplicarMotoresFling(objeto)
@@ -307,333 +336,26 @@ local function executarAtaqueComSeguranca(alvoPlayer)
     end)
 end
 
--- --- VARREDURA E COLETA AUTOMÁTICA DE VEÍCULOS ---
-local function escanearEColetar()
-    objetosSelecionados = {}
-    local meuNick = lp.Name
-
-    for _, obj in pairs(Workspace:GetDescendants()) do
-        if obj:IsA("Model") then
-            local isHeli = ehHelicoptero(obj)
-            local temNomeJogador = string.find(obj.Name, meuNick)
-            
-            if temNomeJogador or isHeli then
-                local alvoFisico = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart")
-                if alvoFisico and alvoFisico.Anchored == false then
-                    if not table.find(objetosSelecionados, alvoFisico) then
-                        table.insert(objetosSelecionados, alvoFisico)
-                    end
-                    
-                    if isHeli then
-                        local assento = encontrarAssento(obj)
-                        if assento and assento:IsA("BasePart") then
-                            -- O bypass agora vai chamar a função de ataque depois que voltar
-                            local alvoAtual = alvoSelecionado
-                            executarBypassNetworkOwnership(assento, function()
-                                if alvoAtual then
-                                    executarAtaqueComSeguranca(alvoAtual)
-                                end
-                            end)
-                        end
-                    end
-                end
-            end
-        end
-    end
-    atualizarTexto()
-end
-
--- --- EXECUÇÃO DO ATAQUE (PONTO DE ENTRADA PRINCIPAL) ---
-local function iniciarAtaqueMassa(alvoPlayer)
-    if not alvoPlayer then return end
-    
-    -- Salvar o alvo para usar depois
-    alvoParaAtacar = alvoPlayer
-    
-    -- Verificar se já temos objetos selecionados
-    if #objetosSelecionados == 0 then
-        -- Se não tiver objetos, escanear primeiro
-        escanearEColetar()
-        task.wait(0.3)
-    end
-    
-    -- Verificar se os objetos selecionados incluem um helicóptero
-    local temHelicoptero = false
-    local assentoHeli = nil
-    local modeloHeli = nil
-    
-    for _, obj in pairs(objetosSelecionados) do
-        if obj and obj.Parent then
-            local model = obj:FindFirstAncestorOfClass("Model") or obj.Parent
-            if ehHelicoptero(model) then
-                temHelicoptero = true
-                modeloHeli = model
-                assentoHeli = encontrarAssento(modeloHeli)
-                break
-            end
-        end
-    end
-    
-    if temHelicoptero and assentoHeli then
-        -- Tem helicóptero, fazer bypass primeiro e depois atacar
-        executarBypassNetworkOwnership(assentoHeli, function()
-            -- Este callback será executado APÓS voltar à posição original
-            if alvoParaAtacar then
-                executarAtaqueComSeguranca(alvoParaAtacar)
-                alvoParaAtacar = nil
-            end
-        end)
-    else
-        -- Não tem helicóptero, atacar diretamente
-        executarAtaqueComSeguranca(alvoPlayer)
-    end
-end
-
--- --- CRIAÇÃO DO BOTÃO UI DA TOOL ---
-local actionButton = Instance.new("TextButton")
-actionButton.Name = "SelectMatterV4Button"
-actionButton.Size = UDim2.new(0, 65, 0, 65)
-actionButton.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-actionButton.BackgroundTransparency = 0
-actionButton.BorderSizePixel = 0
-actionButton.Text = "SELECT\nMATTER V4"
-actionButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-actionButton.TextTransparency = 0
-actionButton.Font = Enum.Font.Arcade
-actionButton.TextScaled = true
-actionButton.TextWrapped = true
-
-local uiPadding = Instance.new("UIPadding")
-uiPadding.PaddingTop = UDim.new(0.08, 0)
-uiPadding.PaddingBottom = UDim.new(0.08, 0)
-uiPadding.PaddingLeft = UDim.new(0.08, 0)
-uiPadding.PaddingRight = UDim.new(0.08, 0)
-uiPadding.Parent = actionButton
-
-local uiStroke = Instance.new("UIStroke")
-uiStroke.Color = Color3.fromRGB(255, 255, 255)
-uiStroke.Thickness = 3
-uiStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-uiStroke.LineJoinMode = Enum.LineJoinMode.Miter
-uiStroke.Parent = actionButton
-
-local uiCorner = Instance.new("UICorner")
-uiCorner.CornerRadius = UDim.new(0, 2)
-uiCorner.Parent = actionButton
-
--- --- CRIAÇÃO DA SCREEN GUI PRINCIPAL ---
-local gui = Instance.new("ScreenGui")
-gui.Name = "AuraCapturadorGui"
-gui.ResetOnSpawn = false
-gui.DisplayOrder = 100
-gui.Enabled = false
-gui.Parent = playerGui
-guiCriada = true
-
-local frame = Instance.new("Frame", gui)
-frame.Name = "MainFrame"
-frame.Size = UDim2.new(0, 230, 0, 320)
-frame.Position = UDim2.new(0.5, -115, 0.5, -160)
-frame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-frame.BorderSizePixel = 0
-frame.Active = true
-frame.Draggable = true
-
-local frameStroke = Instance.new("UIStroke", frame)
-frameStroke.Color = Color3.fromRGB(255, 255, 255)
-frameStroke.Thickness = 2
-
-local titleLabel = Instance.new("TextLabel", frame)
-titleLabel.Size = UDim2.new(1, 0, 0, 35)
-titleLabel.Text = "Aura Capturador\nSELECT MATTER"
-titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-titleLabel.Font = Enum.Font.Arcade
-titleLabel.TextScaled = true
-titleLabel.BackgroundTransparency = 1
-
-local searchBar = Instance.new("TextBox", frame)
-searchBar.Size = UDim2.new(0.9, 0, 0, 26)
-searchBar.Position = UDim2.new(0.05, 0, 0.13, 0)
-searchBar.PlaceholderText = "Find a player..."
-searchBar.Text = ""
-searchBar.Font = Enum.Font.Arcade
-searchBar.TextSize = 13
-searchBar.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-searchBar.TextColor3 = Color3.fromRGB(255, 255, 255)
-searchBar.BorderSizePixel = 1
-searchBar.BorderColor3 = Color3.fromRGB(255, 255, 255)
-
-local scrollList = Instance.new("ScrollingFrame", frame)
-scrollList.Size = UDim2.new(0.9, 0, 0, 170)
-scrollList.Position = UDim2.new(0.05, 0, 0.23, 0)
-scrollList.BackgroundColor3 = Color3.fromRGB(5, 5, 5)
-scrollList.BorderSizePixel = 1
-scrollList.BorderColor3 = Color3.fromRGB(100, 100, 100)
-scrollList.ScrollBarThickness = 5
-
-local listLayout = Instance.new("UIListLayout", scrollList)
-listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-listLayout.Padding = UDim.new(0, 3)
-
-local btnLancar = Instance.new("TextButton", frame)
-btnLancar.Size = UDim2.new(0.9, 0, 0, 35)
-btnLancar.Position = UDim2.new(0.05, 0, 0.85, 0)
-btnLancar.Text = "Lançar MATTER"
-btnLancar.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-btnLancar.TextColor3 = Color3.fromRGB(255, 255, 255)
-btnLancar.Font = Enum.Font.Arcade
-btnLancar.TextSize = 16
-btnLancar.BorderSizePixel = 1
-btnLancar.BorderColor3 = Color3.fromRGB(255, 255, 255)
-
--- --- FUNÇÃO PARA ATUALIZAR TEXTO DO BOTÃO DA TOOL ---
-local function atualizarTexto()
-    if actionButton then
-        if #objetosSelecionados > 0 then
-            actionButton.Text = "DESTROY\n(" .. #objetosSelecionados .. ")"
-        else
-            actionButton.Text = "SELECT\nMATTER V4"
-        end
-    end
-end
-
--- --- RESETAR ESTADO E OCULTAR UI ---
-local function resetarEstado()
-    if conexaoAtaque then
-        conexaoAtaque:Disconnect()
-        conexaoAtaque = nil
-    end
-    objetosSelecionados = {}
-    modoAtivo = false
-    if gui then
-        gui.Enabled = false
-    end
-    if actionButton then
-        actionButton.BackgroundTransparency = 0
-        actionButton.TextTransparency = 0
-    end
-    posicaoOriginal = nil
-    bypassEmExecucao = false
-    aguardandoSeguranca = false
-    alvoParaAtacar = nil
-    atualizarTexto()
-end
-
--- --- ALTERNAR ESTADO DA TOOL E UI ---
-local function alternarModo(ativo)
-    if ativo and not character then
+-- --- CLIQUE NO BOTÃO DA UI (DESATIVAR MANUALMENTE) ---
+actionButton.MouseButton1Click:Connect(function()
+    if _G.ScriptAdapter and _G.ScriptAdapter.MainPanel and _G.ScriptAdapter.MainPanel.Visible then
         return
     end
-    
-    modoAtivo = ativo
-    if gui then
-        gui.Enabled = ativo
-    end
-    
-    if ativo then
-        if actionButton then
-            actionButton.BackgroundTransparency = 0.45
-            actionButton.TextTransparency = 0.2
-        end
-    else
+
+    if modoAtivo then
         resetarEstado()
+    else
+        modoAtivo = true
+        actionButton.BackgroundTransparency = 0.45
+        actionButton.TextTransparency = 0.2
     end
-end
+end)
 
--- --- ATUALIZAÇÃO E FILTRO DA LISTA DE JOGADORES ---
-local function atualizarLista()
-    if not scrollList then return end
-    
-    for _, item in pairs(scrollList:GetChildren()) do
-        if item:IsA("TextButton") then
-            item:Destroy()
-        end
-    end
-
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= lp then
-            local btn = Instance.new("TextButton", scrollList)
-            btn.Size = UDim2.new(1, -6, 0, 26)
-            btn.Text = p.Name
-            btn.Font = Enum.Font.Arcade
-            btn.TextSize = 14
-            btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            btn.BorderSizePixel = 0
-
-            btn.MouseButton1Click:Connect(function()
-                alvoSelecionado = p
-                for _, child in pairs(scrollList:GetChildren()) do
-                    if child:IsA("TextButton") then
-                        child.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-                    end
-                end
-                btn.BackgroundColor3 = Color3.fromRGB(120, 0, 0)
-            end)
-        end
-    end
-    
-    if listLayout then
-        scrollList.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y)
-    end
-end
-
-if Players then
-    Players.PlayerAdded:Connect(atualizarLista)
-    Players.PlayerRemoving:Connect(atualizarLista)
-end
-atualizarLista()
-
--- FILTRO DA SEARCH BAR
-if searchBar then
-    searchBar:GetPropertyChangedSignal("Text"):Connect(function()
-        local busca = string.lower(searchBar.Text)
-        for _, btn in pairs(scrollList:GetChildren()) do
-            if btn:IsA("TextButton") then
-                if busca == "" or string.find(string.lower(btn.Text), busca) then
-                    btn.Visible = true
-                else
-                    btn.Visible = false
-                end
-            end
-        end
-        if listLayout then
-            scrollList.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y)
-        end
-    end)
-end
-
--- --- AÇÃO DO BOTÃO LANÇAR MATTER ---
-if btnLancar then
-    btnLancar.MouseButton1Click:Connect(function()
-        if alvoSelecionado then
-            btnLancar.Text = "CAPTURING..."
-            -- Escanear e coletar objetos
-            escanearEColetar()
-            task.wait(0.5)
-            btnLancar.Text = "Lançar MATTER"
-            
-            -- Iniciar ataque (agora com segurança)
-            iniciarAtaqueMassa(alvoSelecionado)
-        end
-    end)
-end
-
--- --- BOTÃO DE AÇÃO MANUAL DA TOOL ---
-if actionButton then
-    actionButton.MouseButton1Click:Connect(function()
-        if _G.ScriptAdapter and _G.ScriptAdapter.MainPanel and _G.ScriptAdapter.MainPanel.Visible then
-            return
-        end
-
-        alternarModo(not modoAtivo)
-    end)
-end
-
--- --- CAPTURA DE CLIQUES FÍSICOS NO MUNDO ---
+-- --- CAPTURA DE CLIQUES NO MUNDO (CORRIGIDO) ---
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    -- Ignora se o jogo processou ou se o modo não está ativo
     if gameProcessed or not modoAtivo then return end
-    if not character then return end
+    if bypassEmAndamento or aguardandoRetorno then return end
 
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         local pos = input.Position
@@ -649,21 +371,23 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             local hitPart = raycastResult.Instance
             local model = hitPart:FindFirstAncestorOfClass("Model")
 
-            -- CASO 1: Clicar em um jogador
+            -- CASO 1: Clicar em um jogador inimigo (Executar Ataque)
             if model and model:FindFirstChild("Humanoid") then
                 local tPlayer = Players:GetPlayerFromCharacter(model)
+
                 if tPlayer and tPlayer ~= lp then
                     if #objetosSelecionados > 0 then
                         if conexaoAtaque then conexaoAtaque:Disconnect() end
                         iniciarAtaqueMassa(tPlayer)
                     end
                 end
-            
-            -- CASO 2: Clicar em objetos/veículos físicos
+
+            -- CASO 2: Clicar em objetos/veículos físicos (Adicionar à lista)
             else
                 local alvoFisico = nil
                 local modeloVeiculo = hitPart:FindFirstAncestorOfClass("Model") or hitPart
 
+                -- Determina o alvo físico
                 if hitPart.Anchored == false then
                     if hitPart:IsA("BasePart") then
                         alvoFisico = hitPart
@@ -674,17 +398,36 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
                     end
                 end
 
+                -- PRIMEIRO: Adiciona o objeto à seleção
                 if alvoFisico and not table.find(objetosSelecionados, alvoFisico) then
                     table.insert(objetosSelecionados, alvoFisico)
                     atualizarTexto()
+                    print("Objeto selecionado: " .. (alvoFisico.Name or "sem nome"))
 
-                    local isHelicoptero = ehHelicoptero(modeloVeiculo)
+                    -- SEGUNDO: Verifica se é helicóptero e faz o bypass
+                    -- Obtém o modelo real para verificação
+                    local modeloReal = alvoFisico:FindFirstAncestorOfClass("Model") or alvoFisico
                     
-                    if isHelicoptero then
-                        local assentoEncontrado = encontrarAssento(modeloVeiculo)
-                        if assentoEncontrado and assentoEncontrado:IsA("BasePart") then
-                            -- Só faz o bypass, sem atacar ainda
-                            executarBypassNetworkOwnership(assentoEncontrado, nil)
+                    if ehHelicoptero(modeloReal) then
+                        print("Helicóptero detectado! Buscando assento...")
+                        
+                        -- Encontra o assento
+                        local assentoEncontrado = encontrarAssento(modeloReal)
+                        
+                        if assentoEncontrado then
+                            print("Assento encontrado: " .. assentoEncontrado.Name)
+                            -- Executa o bypass (agora que o objeto já está selecionado)
+                            aguardandoRetorno = true
+                            local bypassExecutado = executarBypassNetworkOwnership(assentoEncontrado)
+                            
+                            if not bypassExecutado then
+                                aguardandoRetorno = false
+                                print("Falha ao executar bypass no assento")
+                            else
+                                print("Bypass em andamento para o helicóptero")
+                            end
+                        else
+                            print("Nenhum assento encontrado no helicóptero")
                         end
                     end
                 end
@@ -701,10 +444,13 @@ local toolData = {
     Id = "SelectMatterV4_Tool",
     ButtonUI = actionButton,
     OnEquip = function()
-        alternarModo(true)
+        modoAtivo = true
+        actionButton.BackgroundTransparency = 0.45
+        -- Atualiza referência do character
+        character = lp.Character or character
     end,
     OnUnequip = function()
-        alternarModo(false)
+        resetarEstado()
     end
 }
 
@@ -713,3 +459,5 @@ if _G.ScriptAdapter and _G.ScriptAdapter.RegisterTool then
 else
     table.insert(_G.ScriptAdapter.Queue, toolData)
 end
+
+print("SELECT MATTER V4 CORRIGIDO - Carregado com sucesso!")
